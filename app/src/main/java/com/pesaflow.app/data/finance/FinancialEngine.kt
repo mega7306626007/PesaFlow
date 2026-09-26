@@ -229,10 +229,11 @@ fun buildSnapshot(input: SnapshotInput): FinancialSnapshot {
         .filter { it.reliability == Reliability.CONFIRMED || it.reliability == Reliability.LIKELY }
         .fold(Money.ZERO) { acc, r -> acc + r.expectedMonthly }
 
-    // Essential baselines (§17): median daily over 90d on active days —
-    // one KSh 25,000 phone cannot move a median.
+    // Essential baselines (§17): median daily over 30d on active days —
+    // one KSh 25,000 phone cannot move median. Shorter window than 90 so
+    // "essentials today" follows recent spending rather than a quarterly average.
     val essentialCats = setOf("Food", "Transport", "Rent", "Airtime", "Data", "Health", "School")
-    fun medianDaily(cat: String, windowDays: Long = 90): Double {
+    fun medianDaily(cat: String, windowDays: Long = 30): Double {
         val since = now - windowDays * DAY_MS
         val byDay = flows.filter {
             it.type == TransactionType.EXPENSE && it.category.equals(cat, ignoreCase = true) &&
