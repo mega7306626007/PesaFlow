@@ -328,16 +328,14 @@ fun BudgetProgressBar(
 }
 
 // Hero financial card: deep blue gradient, single gold accent line, calm hierarchy.
-// Available dominates; income/expense/safe-to-spend secondary.
+// One hero figure dominates; up to three supporting stats ride below.
 @Composable
 fun HeroFinanceCard(
     greeting: String,
     dateLine: String,
     availableLabel: String,
     availableValue: String,
-    incomeValue: String,
-    expenseValue: String,
-    safeToSpendValue: String?,
+    stats: List<Pair<String, String>> = emptyList(),
     modifier: Modifier = Modifier,
     onHideToggle: (() -> Unit)? = null,
     hideLabel: String? = null
@@ -383,9 +381,7 @@ fun HeroFinanceCard(
                     maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
                 Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(PesaSpacing.md)) {
-                    HeroStat("Income", incomeValue, Modifier.weight(1f))
-                    HeroStat("Spent", expenseValue, Modifier.weight(1f))
-                    if (safeToSpendValue != null) HeroStat("Safe to spend", safeToSpendValue, Modifier.weight(1f))
+                    stats.take(3).forEach { (label, value) -> HeroStat(label, value, Modifier.weight(1f)) }
                 }
             }
         }

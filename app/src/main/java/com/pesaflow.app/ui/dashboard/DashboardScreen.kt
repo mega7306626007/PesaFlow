@@ -66,8 +66,6 @@ fun DashboardScreen(
     val mpesaBal by viewModel.mpesaBalance.collectAsState()
     val cashBal by viewModel.cashBalance.collectAsState()
     val bankBal by viewModel.bankBalance.collectAsState()
-    val income by viewModel.monthlyIncome.collectAsState()
-    val expenses by viewModel.monthlyExpenses.collectAsState()
     val transactions by viewModel.allTransactions.collectAsState()
     val pendingTransactions by viewModel.pendingTransactions.collectAsState()
     val budgets by viewModel.budgets.collectAsState()
@@ -169,8 +167,26 @@ fun DashboardScreen(
             }
 
 
-            // Hero financial card — available dominates; income/spent secondary.
+            // Hero financial card — canonical snapshot drives it: safe-to-spend
+            // hero (primary horizon), Held + Flexible supporting, Why? unfolds
+            // the engine's own explanation. One hero, two supports, no dumps.
             item {
+                val snap by viewModel.financialSnapshot.collectAsState()
+                val heroLabel = when (snap.primaryHorizon) {
+                    com.pesaflow.app.data.finance.Horizon.TODAY -> "Safe to spend · today"
+                    com.pesaflow.app.data.finance.Horizon.WEEK -> "Safe to spend · this week"
+                    com.pesaflow.app.data.finance.Horizon.UNTIL_NEXT_INCOME -> "Safe to spend · to next income"
+                    com.pesaflow.app.data.finance.Horizon.MONTH -> "Safe to spend · this month"
+                    com.pesaflow.app.data.finance.Horizon.SEMESTER -> "Safe to spend · semester"
+                }
+                val heroValue = when (snap.primaryHorizon) {
+                    com.pesaflow.app.data.finance.Horizon.TODAY -> snap.safeToday
+                    com.pesaflow.app.data.finance.Horizon.WEEK -> snap.safeWeek
+                    com.pesaflow.app.data.finance.Horizon.UNTIL_NEXT_INCOME -> snap.safeUntilIncome
+                    com.pesaflow.app.data.finance.Horizon.MONTH -> snap.safeMonth
+                    com.pesaflow.app.data.finance.Horizon.SEMESTER -> snap.safeSemester
+                }
+                val fmt = com.pesaflow.app.data.finance.MoneyFormatter
                 val hour = remember { java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY) }
                 val greeting = remember(userName) {
                     val name = userName.ifBlank { "there" }
@@ -187,14 +203,38 @@ fun DashboardScreen(
                 HeroFinanceCard(
                     greeting = greeting,
                     dateLine = dateLine,
-                    availableLabel = viewModel.getLocalizedString("balance_label"),
-                    availableValue = if (hideBalances) "KSh ••••" else availableBalance.toKSh(),
-                    incomeValue = if (hideBalances) "KSh ••" else "KSh ${income.toInt()}",
-                    expenseValue = if (hideBalances) "KSh ••" else "KSh ${expenses.toInt()}",
-                    safeToSpendValue = null,
+                    availableLabel = heroLabel,
+                    availableValue = if (hideBalances) "KSh ••••" else fmt.compact(heroValue),
+                    stats = listOf(
+                        "Held" to if (hideBalances) "••••" else fmt.compact(snap.liquid),
+                        "Flexible" to if (hideBalances) "••••" else fmt.compact(snap.flexible)
+                    ),
                     onHideToggle = { viewModel.setHideBalances(!hideBalances) },
                     hideLabel = if (hideBalances) "Show" else "Hide"
                 )
+                var showWhy by remember { mutableStateOf(false) }
+                TextButton(onClick = { showWhy = !showWhy }, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (showWhy) "Hide why ▴" else "Why? ▾", style = MaterialTheme.typography.bodySmall)
+                }
+                if (showWhy && !hideBalances) {
+                    val why = snap.explanations["safeToday"]
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                why?.why ?: "Based on your ledger.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            (why?.contributors.orEmpty()).forEach {
+                                Text("• $it", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
             }
 
 
