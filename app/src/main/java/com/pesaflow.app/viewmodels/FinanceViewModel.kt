@@ -67,13 +67,28 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     val confirmedRhythms: StateFlow<List<UserRhythm>> = repository.confirmedRhythms.stateIn(
         viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
     )
+    val incomeSources: StateFlow<List<IncomeSource>> = repository.incomeSources.stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
+    )
+
+    fun addIncomeSource(source: IncomeSource) {
+        viewModelScope.launch { repository.addIncomeSource(source) }
+    }
+
+    fun setIncomeSources(sources: List<IncomeSource>) {
+        viewModelScope.launch { repository.setIncomeSources(sources) }
+    }
+
+    fun deleteIncomeSource(id: String) {
+        viewModelScope.launch { repository.deleteIncomeSource(id) }
+    }
 
     // Canonical snapshot (Phase 2): every screen will read money figures
     // from here instead of re-deriving them (UI rewire lands Phase 11).
     // Pure buildSnapshot over combined flows — the ViewModel orchestrates
     // state, the finance package owns the math.
     val financialSnapshot: StateFlow<FinancialSnapshot> = combine(
-        allTransactions, budgets, bills, debts, savingsGoals, universityProfile
+        allTransactions, budgets, bills, debts, savingsGoals, universityProfile, incomeSources
     ) { args ->
         @Suppress("UNCHECKED_CAST")
         val txs = args[0] as List<Transaction>
@@ -86,8 +101,8 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         @Suppress("UNCHECKED_CAST")
         val goals = args[4] as List<SavingsGoal>
         val profile = args[5] as UniversityProfile?
-        val ctx = getApplication<Application>().applicationContext
-        val sources = com.pesaflow.app.data.income.IncomeSourceStore.load(ctx)
+        @Suppress("UNCHECKED_CAST")
+        val sources = args[6] as List<IncomeSource>
         val persona = com.pesaflow.app.ui.budgets.parsePersona(getOnboardingAnswers())
         buildSnapshot(
             SnapshotInput(
@@ -144,6 +159,10 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         hideBalances.value = prefs.getBoolean("hide_balances", false)
         hiddenSections.value = (prefs.getString("hidden_sections", "") ?: "")
             .split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
+        // Phase 6: one-way prefs→Room hop for legacy income sources.
+        viewModelScope.launch {
+            repository.migrateLegacyIncomeSources(getApplication<Application>().applicationContext)
+        }
     }
 
 

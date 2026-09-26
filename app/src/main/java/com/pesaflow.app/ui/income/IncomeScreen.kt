@@ -56,9 +56,8 @@ import com.pesaflow.app.viewmodels.FinanceViewModel
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun IncomeScreen(viewModel: FinanceViewModel) {
-    val context = LocalContext.current
     val transactions by viewModel.allTransactions.collectAsState()
-    var sources by remember { mutableStateOf(IncomeSourceStore.load(context)) }
+    val sources by viewModel.incomeSources.collectAsState()
     var showQuickAdd by remember { mutableStateOf(false) }
 
     val monthStart = remember {
@@ -282,8 +281,8 @@ fun IncomeScreen(viewModel: FinanceViewModel) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 IncomeSetupBlock(
-                    highlightSelfSponsored = false,
-                    onChanged = { sources = IncomeSourceStore.load(context) }
+                    viewModel = viewModel,
+                    highlightSelfSponsored = false
                 )
                 if (sources.isEmpty() && recentIn.isEmpty()) {
                     PesaEmptyState(

@@ -46,7 +46,7 @@ fun BudgetsScreen(viewModel: FinanceViewModel) {
     // Prefill once from detected income (ledger month, else declared
     // sources) so the calculator never opens blank. Anything typed wins.
     val detectedBase = monthlyIncome.takeIf { it > 0 }
-        ?: com.pesaflow.app.data.income.IncomeSourceStore.totalExpected(androidx.compose.ui.platform.LocalContext.current).takeIf { it > 0 }
+        ?: viewModel.incomeSources.collectAsState().value.sumOf { com.pesaflow.app.data.income.IncomeSourceStore.budgetedMonthly(it) }.takeIf { it > 0 }
     var calcIncome by remember(detectedBase) { mutableStateOf(detectedBase?.toInt()?.toString() ?: "") }
     var calcRule by remember { mutableStateOf("Student") }
     var calcPeriod by remember { mutableStateOf(BudgetType.MONTHLY) }
@@ -213,7 +213,8 @@ fun BudgetsScreen(viewModel: FinanceViewModel) {
                     val monthlyBudgetsTotal = budgets.filter { it.type == BudgetType.MONTHLY }.sumOf { it.limitAmount }
                     // Expected income from More → Income (HELB, parents, hustle...) backs the
                     // base when the ledger is still empty early in the month.
-                    val expectedIncome = IncomeSourceStore.totalExpected(androidx.compose.ui.platform.LocalContext.current).takeIf { it > 0 }
+                    val incomeSources by viewModel.incomeSources.collectAsState()
+                    val expectedIncome = incomeSources.sumOf { com.pesaflow.app.data.income.IncomeSourceStore.budgetedMonthly(it) }.takeIf { it > 0 }
                     val calcBase = if (calcPeriod == BudgetType.DAILY && autoDaily && monthlyBudgetsTotal > 0) {
                         monthlyBudgetsTotal
                     } else {

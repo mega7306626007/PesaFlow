@@ -318,6 +318,7 @@ fun DashboardScreen(
                     bills = bills,
                     debts = debts,
                     goals = savingsGoals,
+                    incomeSources = viewModel.incomeSources.collectAsState().value,
                     persona = com.pesaflow.app.ui.budgets.parsePersona(viewModel.getOnboardingAnswers())
                 )
             }

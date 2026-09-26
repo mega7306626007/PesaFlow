@@ -184,7 +184,8 @@ fun InsightsScreen(viewModel: FinanceViewModel) {
                     name = userName,
                     bills = bills,
                     debts = debts,
-                    goals = savingsGoals
+                    goals = savingsGoals,
+                    incomeSources = viewModel.incomeSources.collectAsState().value
                 )
             }
             }

@@ -36,13 +36,14 @@ fun SmartInsightsCard(
     bills: List<com.pesaflow.app.data.models.Bill>,
     debts: List<com.pesaflow.app.data.models.Debt>,
     goals: List<com.pesaflow.app.data.models.SavingsGoal>,
+    incomeSources: List<com.pesaflow.app.data.income.IncomeSource> = emptyList(),
     persona: Persona = Persona.HOSTEL_COOK
 ) {
     val appCtx = LocalContext.current
     val weekPlan = WeekPlan.load(appCtx)
-    val expectedIncome = remember { com.pesaflow.app.data.income.IncomeSourceStore.totalExpected(appCtx) }
+    val expectedIncome = remember(incomeSources) { incomeSources.sumOf { com.pesaflow.app.data.income.IncomeSourceStore.budgetedMonthly(it) } }
     val monthFees = remember { com.pesaflow.app.data.parsers.readMonthFees(appCtx) }
-    val hustleSrcs = remember { com.pesaflow.app.data.income.IncomeSourceStore.load(appCtx).filter { it.kind == "HUSTLE" } }
+    val hustleSrcs = remember(incomeSources) { incomeSources.filter { it.kind == "HUSTLE" } }
     val hustleExp = remember(hustleSrcs) { hustleSrcs.sumOf { com.pesaflow.app.data.income.IncomeSourceStore.budgetedMonthly(it) } }
     val hustleGot = remember(transactions, hustleSrcs) {
         val labels = hustleSrcs.map { it.label }.filter { it.isNotBlank() }

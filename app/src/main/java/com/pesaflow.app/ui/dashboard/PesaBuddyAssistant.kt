@@ -590,9 +590,9 @@ fun processUserInput(
         userInput.lowercase().contains("salary") || userInput.lowercase().contains("income") ->
             run {
                 val topIn = monthTx.filter { it.type == TransactionType.INCOME }.groupBy { it.category }.mapValues { e -> e.value.sumOf { it.amount } }.maxByOrNull { it.value }
-                val appCtx = viewModel.getApplication<android.app.Application>().applicationContext
-                val expected = com.pesaflow.app.data.income.IncomeSourceStore.totalExpected(appCtx)
-                val declared = com.pesaflow.app.data.income.IncomeSourceStore.load(appCtx).takeIf { it.isNotEmpty() }
+                val appSources = viewModel.incomeSources.value
+                val expected = appSources.sumOf { com.pesaflow.app.data.income.IncomeSourceStore.budgetedMonthly(it) }
+                val declared = appSources.takeIf { it.isNotEmpty() }
                     ?.joinToString(", ") { it.displayKind() + if (it.expectedAmount > 0) " " + it.expectedAmount.toInt() + " " + it.frequencyLabel() else "" }
                 "This month's income: KSh ${viewModel.monthlyIncome.value.toInt()}." +
                     (topIn?.let { " Mostly: ${it.key} KSh ${it.value.toInt()}." } ?: " Log income to see where it comes from.") +

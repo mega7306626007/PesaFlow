@@ -1,14 +1,16 @@
 package com.pesaflow.app.data.income
 
 import android.content.Context
+import androidx.room.*
 
 // Income sources: where the money comes from and how we track it.
-// Stored as JSON in SharedPreferences (no DB migration): HELB via M-Pesa is
-// SMS-parsed automatically, bank income tracks by expected dates, everything
-// else is manual. totalExpected() feeds the budget calculator base fallback,
+// Room-backed and reactive (Phase 6): HELB via M-Pesa is SMS-parsed
+// automatically, bank income tracks by expected dates, everything else is
+// manual. totalExpected() feeds the budget calculator base fallback,
 // Buddy's income answers and the onboarding review.
+@Entity(tableName = "income_sources")
 data class IncomeSource(
-    val id: String = java.util.UUID.randomUUID().toString(),
+    @PrimaryKey val id: String = java.util.UUID.randomUUID().toString(),
     // HELB_MPESA, HELB_BANK, PARENT, GUARDIAN, HUSTLE, JOB, SCHOLARSHIP, FULIZA, OTHER
     val kind: String = "OTHER",
     val label: String = "",
@@ -121,6 +123,17 @@ object IncomeSourceStore {
 
     fun totalExpected(context: Context): Double =
         load(context).sumOf { budgetedMonthly(it) }
+
+    // One-way legacy migration (Phase 6): prefs JSON → Room, then the key is
+    // cleared so the database is the single source of truth going forward.
+    // Returns the moved rows (empty when nothing to move).
+    fun consumeLegacy(context: Context): List<IncomeSource> {
+        val moved = load(context)
+        if (moved.isNotEmpty()) {
+            prefs(context).edit().remove(KEY).apply()
+        }
+        return moved
+    }
 
     fun autoTrackedKinds(context: Context): List<String> =
         load(context).filter { it.autoTrack }.map { it.displayKind() }.distinct()

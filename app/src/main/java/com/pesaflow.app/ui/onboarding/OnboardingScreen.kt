@@ -349,7 +349,7 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    IncomeSetupBlock(highlightSelfSponsored = fundSource == "SELF")
+                    IncomeSetupBlock(viewModel = viewModel, highlightSelfSponsored = fundSource == "SELF")
                 }
                 4 -> {
                     StepArt(R.drawable.ob_sms)
@@ -484,7 +484,7 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                             ReviewRow("Monthly upkeep → ledger", revUpkeep?.let { "KSh " + it.toInt() } ?: "—", if (revUpkeep != null) "you" else "skip")
                             ReviewRow("Savings goal", revSave?.let { "KSh " + it.toInt() } ?: "—", if (revSave != null) "you" else "skip")
                             ReviewRow("Fees bill", revFees?.let { "KSh " + it.toInt() } ?: "—", if (revFees != null) "you" else "skip")
-                            val revSources = IncomeSourceStore.load(appContext)
+                            val revSources = viewModel.incomeSources.value
                             ReviewRow(
                                 "Income sources",
                                 if (revSources.isEmpty()) "—" else revSources.size.toString() + " (" + revSources.joinToString(", ") { it.displayKind() } + ")",
@@ -595,7 +595,7 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                             // already declared (above or earlier) are left alone.
                             val helbTotal = if (fundSource == "SELF") 0.0
                             else (helb1.toDoubleOrNull() ?: 0.0) + (helb2.toDoubleOrNull() ?: 0.0)
-                            val existingKinds = IncomeSourceStore.load(appContext).map { it.kind }.toSet()
+                            val existingKinds = viewModel.incomeSources.value.map { it.kind }.toSet()
                             val seededIncome = mutableListOf<IncomeSource>()
                             if (helbTotal > 0 && "HELB_MPESA" !in existingKinds && "HELB_BANK" !in existingKinds) {
                                 // Tranches land per semester (~4 months): monthly share keeps budget math honest.
@@ -607,7 +607,7 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                                 }
                             }
                             if (seededIncome.isNotEmpty()) {
-                                IncomeSourceStore.save(appContext, IncomeSourceStore.load(appContext) + seededIncome)
+                                viewModel.setIncomeSources(viewModel.incomeSources.value + seededIncome)
                             }
                             monthlyBudget.toDoubleOrNull()?.takeIf { it > 0 }?.let {
                                 viewModel.upsertBudget("ALL", it, BudgetType.MONTHLY)

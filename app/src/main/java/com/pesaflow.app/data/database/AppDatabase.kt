@@ -7,12 +7,13 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.room.TypeConverters
+import com.pesaflow.app.data.income.IncomeSource
 import com.pesaflow.app.data.models.*
 
 
 @Database(
-    entities = [Transaction::class, PendingTransaction::class, Budget::class, SavingsGoal::class, UniversityProfile::class, Bill::class, Debt::class, MealItem::class, ChamaGroup::class, Belonging::class, KitchenStock::class, UserRhythm::class, MoneyAccount::class],
-    version = 15,
+    entities = [Transaction::class, PendingTransaction::class, Budget::class, SavingsGoal::class, UniversityProfile::class, Bill::class, Debt::class, MealItem::class, ChamaGroup::class, Belonging::class, KitchenStock::class, UserRhythm::class, MoneyAccount::class, IncomeSource::class],
+    version = 16,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -30,6 +31,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun kitchenStockDao(): KitchenStockDao
     abstract fun userRhythmDao(): UserRhythmDao
     abstract fun moneyAccountDao(): MoneyAccountDao
+    abstract fun incomeSourceDao(): IncomeSourceDao
 
 
     companion object {
@@ -55,8 +57,13 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("CREATE TABLE IF NOT EXISTS user_rhythms (id TEXT NOT NULL PRIMARY KEY, kind TEXT NOT NULL, category TEXT NOT NULL, confidence REAL NOT NULL, hint TEXT NOT NULL, dayOfMonth INTEGER NOT NULL, amount REAL NOT NULL, sourceCode TEXT NOT NULL, confirmed INTEGER NOT NULL, dismissed INTEGER NOT NULL, createdAt INTEGER NOT NULL)")
             }
         }
-        // Phase 4–5: transfer legs carry a side; bills link their payment row
-        // and track remainder owed (backfilled to full amount).
+        // Phase 6 income: sources move from prefs JSON to Room. Data follows
+        // separately (one-way prefs→DB hop in the repository, then key cleared).
+        val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS income_sources (id TEXT NOT NULL PRIMARY KEY, kind TEXT NOT NULL, label TEXT NOT NULL, bank TEXT NOT NULL, expectedAmount REAL NOT NULL, frequency TEXT NOT NULL, dayOfMonth INTEGER NOT NULL, autoTrack INTEGER NOT NULL, useInBudget INTEGER NOT NULL)")
+            }
+        }
         val MIGRATION_14_15 = object : Migration(14, 15) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE transactions ADD COLUMN transferSide TEXT NOT NULL DEFAULT ''")
@@ -86,7 +93,7 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "pesaflow_secure_db"
-                ).addMigrations(MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15).fallbackToDestructiveMigration().build()
+                ).addMigrations(MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16).fallbackToDestructiveMigration().build()
                 INSTANCE = instance
                 instance
             }

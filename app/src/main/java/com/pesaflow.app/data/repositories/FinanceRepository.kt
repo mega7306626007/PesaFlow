@@ -1,9 +1,11 @@
 package com.pesaflow.app.data.repositories
 
 import com.pesaflow.app.data.database.AppDatabase
+import com.pesaflow.app.data.income.IncomeSource
 import com.pesaflow.app.data.models.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
 
@@ -30,6 +32,29 @@ class FinanceRepository(private val database: AppDatabase) {
     suspend fun confirmRhythm(id: String) = database.userRhythmDao().confirm(id)
     suspend fun dismissRhythm(id: String) = database.userRhythmDao().dismiss(id)
     suspend fun deleteRhythm(id: String) = database.userRhythmDao().delete(id)
+
+
+    // Phase 6 income: Room is the single source of truth. Legacy prefs rows
+    // hop over exactly once (then their key is cleared — never two ledgers).
+    val incomeSources: Flow<List<IncomeSource>> = database.incomeSourceDao().getAll()
+
+    suspend fun addIncomeSource(source: IncomeSource) = database.incomeSourceDao().insert(source)
+
+    suspend fun setIncomeSources(sources: List<IncomeSource>) = transact {
+        database.incomeSourceDao().deleteAll()
+        if (sources.isNotEmpty()) database.incomeSourceDao().insertAll(sources)
+    }
+
+    suspend fun deleteIncomeSource(id: String) = database.incomeSourceDao().delete(id)
+
+    suspend fun migrateLegacyIncomeSources(context: android.content.Context) {
+        val moved = com.pesaflow.app.data.income.IncomeSourceStore.consumeLegacy(context)
+        if (moved.isNotEmpty()) {
+            val existing = database.incomeSourceDao().getAll().first()
+                .map { it.kind to it.label }.toSet()
+            database.incomeSourceDao().insertAll(moved.filter { (it.kind to it.label) !in existing })
+        }
+    }
 
 
     // Phase 3 accounts: balances live here once postings arrive (Phase 4);

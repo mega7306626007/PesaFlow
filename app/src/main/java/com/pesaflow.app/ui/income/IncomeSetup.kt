@@ -19,6 +19,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,19 +49,19 @@ private val BANKS = listOf("KCB", "Equity", "Co-op", "Absa", "Stanbic", "Family"
 
 
 // Shared income-source manager: used by the onboarding income step AND the
-// More → Income page. Same store, same logic, both stay in sync.
+// More → Income page. Room-backed and reactive (Phase 6) — same flow,
+// same logic, both stay in sync.
 @Composable
 fun IncomeSetupBlock(
+    viewModel: com.pesaflow.app.viewmodels.FinanceViewModel,
     highlightSelfSponsored: Boolean = false,
     onChanged: () -> Unit = {}
 ) {
-    val context = LocalContext.current
-    var sources by remember { mutableStateOf(IncomeSourceStore.load(context)) }
+    val sources by viewModel.incomeSources.collectAsState()
     var showAdd by remember { mutableStateOf(false) }
 
     fun persist(next: List<IncomeSource>) {
-        sources = next
-        IncomeSourceStore.save(context, next)
+        viewModel.setIncomeSources(next)
         onChanged()
     }
 
