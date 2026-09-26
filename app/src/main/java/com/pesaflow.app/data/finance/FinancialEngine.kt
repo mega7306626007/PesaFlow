@@ -1,0 +1,384 @@
+package com.pesaflow.app.data.finance
+
+import com.pesaflow.app.data.models.PaymentMethod
+import com.pesaflow.app.data.models.Transaction
+import com.pesaflow.app.data.models.TransactionType
+import java.util.Calendar
+
+// Canonical Financial State Engine (§2–§3): RAW INPUTS → snapshot. Pure
+// Kotlin, no Android. UI must consume FinancialSnapshot, never re-derive.
+// Known honest gaps (not masked): opening-upkeep rows are real ledger INCOME
+// here (separate opening-equity account arrives with postings, Phase 4);
+// partial bill payments have no model yet (amountRemaining == amount).
+private const val DAY_MS = 24L * 60 * 60 * 1000
+private val ESSENTIAL_CATEGORIES = setOf("Rent", "School", "Health", "Food", "Transport")
+
+fun accountOf(tx: Transaction): Account {
+    if (tx.merchant.contains("ziidi", ignoreCase = true) &&
+        (tx.type == TransactionType.SAVING || tx.type == TransactionType.INCOME)
+    ) return Account.ZIIDI
+    return when (tx.paymentMethod) {
+        PaymentMethod.MPESA -> Account.M_PESA
+        PaymentMethod.CASH -> Account.CASH
+        PaymentMethod.BANK_TRANSFER -> Account.BANK
+        PaymentMethod.AIRTIME -> Account.M_PESA
+        PaymentMethod.OTHER -> Account.OTHER
+    }
+}
+
+fun median(values: List<Double>): Double {
+    if (values.isEmpty()) return 0.0
+    val s = values.sorted()
+    return if (s.size % 2 == 1) s[s.size / 2] else (s[s.size / 2 - 1] + s[s.size / 2]) / 2
+}
+
+fun percentile(values: List<Double>, pct: Double): Double {
+    if (values.isEmpty()) return 0.0
+    val s = values.sorted()
+    val idx = ((pct / 100.0) * (s.size - 1)).toInt().coerceIn(0, s.size - 1)
+    return s[idx]
+}
+
+internal fun monthBounds(nowMs: Long): Pair<Long, Long> {
+    val c = Calendar.getInstance().apply { timeInMillis = nowMs }
+    c.set(Calendar.DAY_OF_MONTH, 1)
+    c.set(Calendar.HOUR_OF_DAY, 0)
+    c.set(Calendar.MINUTE, 0)
+    c.set(Calendar.SECOND, 0)
+    c.set(Calendar.MILLISECOND, 0)
+    return c.timeInMillis to nowMs
+}
+
+internal fun daysLeftInMonth(nowMs: Long): Int {
+    val c = Calendar.getInstance().apply { timeInMillis = nowMs }
+    return (c.getActualMaximum(Calendar.DAY_OF_MONTH) - c.get(Calendar.DAY_OF_MONTH)).coerceAtLeast(0)
+}
+
+fun buildSnapshot(input: SnapshotInput): FinancialSnapshot {
+    val now = input.nowMs
+    val real = input.txs.filter { !it.isSample }
+    val flows = real.filter { it.type != TransactionType.TRANSFER }
+    val (monthStart, _) = monthBounds(now)
+
+    // Quality from evidence, never assumed.
+    val spanDays = if (real.isEmpty()) 0 else ((now - real.minOf { it.dateTimestamp }) / DAY_MS).toInt() + 1
+    val quality = when {
+        real.size >= 30 && spanDays >= 21 -> DataQuality.FULL
+        real.size >= 10 -> DataQuality.PARTIAL
+        else -> DataQuality.SPARSE
+    }
+
+    // Accounts + liquid + assets. Transfers move between accounts with zero
+    // net wealth effect; savings/investments are assets, never spending.
+    val accounts = Account.values().associateWith { Money.ZERO }.toMutableMap()
+    var spendableDelta = Money.ZERO
+    var savedWealth = Money.ZERO
+    flows.forEach { tx ->
+        val m = Money.of(tx.amount)
+        val acct = accountOf(tx)
+        when (tx.type) {
+            TransactionType.INCOME -> {
+                accounts[acct] = accounts.getValue(acct) + m
+                spendableDelta += m
+            }
+            TransactionType.EXPENSE -> {
+                accounts[acct] = accounts.getValue(acct) - m
+                spendableDelta -= m
+            }
+            TransactionType.SAVING, TransactionType.INVESTMENT -> {
+                accounts[acct] = accounts.getValue(acct) - m
+                spendableDelta -= m
+                savedWealth += m
+            }
+            TransactionType.TRANSFER -> Unit // net zero by construction
+        }
+    }
+    val liquid = spendableDelta.coerceAtLeast(Money.ZERO)
+    val totalAssets = liquid + savedWealth
+    val debtsOwed = input.debts.filter { it.status != "PAID" && it.direction == "I_OWE" }
+    val totalLiabilities = Money.of(debtsOwed.sumOf { it.amount })
+    val netWorth = totalAssets - totalLiabilities
+
+    // Monthly EARNED income: real income events in-period. Samples excluded;
+    // transfers excluded. (Opening upkeep rows are genuine ledger INCOME in
+    // this tree — opening-equity separation lands with postings, Phase 4.)
+    val monthlyEarnedIncome = Money.of(
+        flows.filter {
+            it.type == TransactionType.INCOME && it.dateTimestamp >= monthStart
+        }.sumOf { it.amount }
+    )
+
+    // Obligations: time-aware reserves + urgency (§8–§9). Paid bills are gone;
+    // only real payment events move cash (bill rows alone never book money).
+    val openBills = input.bills.filter { it.status != "PAID" }
+    val obligations = openBills.map { b ->
+        val days = ((b.dueDate - now) / DAY_MS).toInt()
+        val overdue = b.dueDate < now
+        val essential = b.category in ESSENTIAL_CATEGORIES ||
+            (input.profile.debtLevel != DebtLevel.NONE && b.category == "Bills")
+        val urgency = (if (essential) 2.0 else 1.0) * (if (overdue) 3.0 else 1.0) *
+            b.amount / maxOf(days, 1).toDouble()
+        ObligationView(
+            name = b.name,
+            amount = Money.of(b.amount),
+            remaining = Money.of(b.amount),
+            dueInDays = days,
+            essential = essential,
+            overdue = overdue,
+            urgency = urgency,
+            dailyReserve = Money.of(b.amount / maxOf(days, 1).toDouble())
+        )
+    }.sortedByDescending { it.urgency }
+    val upcomingBillsTotal = Money.of(openBills.sumOf { it.amount })
+    val upcomingDebtTotal = Money.of(debtsOwed.sumOf { it.amount })
+
+    // HELB semester treatment (§15): split fees vs upkeep only when the user
+    // gave both figures. Never invent a split.
+    val helb = Money.of(input.helbExpected)
+    val fees = Money.of(input.feesAmount)
+    val feesCovered = if (input.helbExpected > 0 && input.feesAmount > 0) minOf(helb, fees) else Money.ZERO
+    val upkeep = if (input.helbExpected > 0) (helb - feesCovered).coerceAtLeast(Money.ZERO) else Money.ZERO
+    val upcomingFees = (fees - feesCovered).coerceAtLeast(Money.ZERO)
+
+    // Goal reservations (§10): remaining + recommended pace, labeled projected.
+    val goalReservations = input.goals.map { g ->
+        val remaining = (g.targetAmount - g.currentAmount).coerceAtLeast(0.0)
+        val days = ((g.targetTimestamp - now) / DAY_MS).toInt().coerceAtLeast(1)
+        val perDay = remaining / days
+        ReservationView(
+            label = g.title,
+            amount = Money.of(remaining),
+            projectedNote = "Projected pace ≈ ${MoneyFormatter.compact(Money.of(perDay))}/day to stay on schedule."
+        )
+    }
+    val reservedGoals = goalReservations.fold(Money.ZERO) { acc, r -> acc + r.amount }
+    val reserved = reservedGoals + upcomingFees
+    val committed = upcomingBillsTotal + upcomingDebtTotal + reserved
+    val flexible = (liquid - committed).coerceAtLeast(Money.ZERO)
+
+    // Income reliability (§14–§16): observed cadence over the last 4 month
+    // slots. Hustle is capped at VARIABLE — never salary. No calibrated
+    // percentages are shown, only honest bands (§42).
+    val incomeReliabilities = input.incomeSources.map { s ->
+        val landed = monthlyLandedFor(s.label, s.kind, real, monthStart)
+        val slots = (0..3).count { back ->
+            val c = Calendar.getInstance().apply { timeInMillis = now }
+            c.add(Calendar.MONTH, -back)
+            val y = c.get(Calendar.YEAR)
+            val m = c.get(Calendar.MONTH)
+            real.any {
+                it.type == TransactionType.INCOME && matchesSource(it, s.label, s.kind) &&
+                    Calendar.getInstance().apply { timeInMillis = it.dateTimestamp }.let {
+                        it.get(Calendar.YEAR) == y && it.get(Calendar.MONTH) == m
+                    }
+            }
+        }
+        val band = when {
+            s.kind == "HUSTLE" && slots >= 3 -> Reliability.VARIABLE
+            s.kind == "HUSTLE" -> if (slots >= 1) Reliability.VARIABLE else Reliability.POSSIBLE
+            s.kind == "OTHER" && slots == 0 -> Reliability.UNKNOWN
+            slots >= 4 -> Reliability.CONFIRMED
+            slots == 3 -> Reliability.LIKELY
+            slots >= 1 -> Reliability.VARIABLE
+            else -> Reliability.POSSIBLE
+        }
+        IncomeReliability(
+            label = s.label.ifBlank { s.kind },
+            reliability = if (s.kind.startsWith("HELB")) {
+                if (slots >= 1) Reliability.LIKELY else Reliability.POSSIBLE
+            } else band,
+            expectedMonthly = Money.of(com.pesaflow.app.data.income.IncomeSourceStore.budgetedMonthly(s)),
+            landedThisMonth = Money.of(landed)
+        )
+    }
+    val reliableMonthly = incomeReliabilities
+        .filter { it.reliability == Reliability.CONFIRMED }
+        .fold(Money.ZERO) { acc, r -> acc + r.expectedMonthly }
+    val expectedMonthly = incomeReliabilities
+        .filter { it.reliability == Reliability.CONFIRMED || it.reliability == Reliability.LIKELY }
+        .fold(Money.ZERO) { acc, r -> acc + r.expectedMonthly }
+
+    // Essential baselines (§17): median daily over 90d on active days —
+    // one KSh 25,000 phone cannot move a median.
+    val essentialCats = setOf("Food", "Transport", "Rent", "Airtime", "Data", "Health", "School")
+    fun medianDaily(cat: String, windowDays: Long = 90): Double {
+        val since = now - windowDays * DAY_MS
+        val byDay = flows.filter {
+            it.type == TransactionType.EXPENSE && it.category.equals(cat, ignoreCase = true) &&
+                it.dateTimestamp >= since
+        }.groupBy { it.dateTimestamp / DAY_MS }.mapValues { (_, l) -> l.sumOf { it.amount } }
+        if (byDay.isEmpty()) return 0.0
+        val med = median(byDay.values.toList())
+        return median(byDay.values.filter { it <= med * 10 })
+    }
+    val essentialDaily = essentialCats.sumOf { medianDaily(it) }
+
+    // Horizons (§11, §26): each figure states its own window. Primary horizon
+    // follows the income pattern: salary → next income, HELB → semester-aware
+    // month, hustle-only (nothing confirmed/likely) → week, else month.
+    val hasSalary = incomeReliabilities.any {
+        (it.reliability == Reliability.CONFIRMED || it.reliability == Reliability.LIKELY) &&
+            (it.label.contains("salary", true) || it.label.contains("job", true))
+    }
+    val hasHelb = input.profile.incomeKinds.any { it.contains("HELB", true) } || input.helbExpected > 0
+    val hasSteady = incomeReliabilities.any {
+        it.reliability == Reliability.CONFIRMED || it.reliability == Reliability.LIKELY
+    }
+    val primaryHorizon = when {
+        hasSalary -> Horizon.UNTIL_NEXT_INCOME
+        hasHelb -> Horizon.SEMESTER
+        !hasSteady -> Horizon.WEEK
+        else -> Horizon.MONTH
+    }
+    val bufferRate = when (input.profile.risk) {
+        RiskPreference.CONSERVATIVE -> 0.10
+        RiskPreference.FLEXIBLE -> 0.02
+        else -> 0.05
+    }
+    val riskBuffer = liquid * bufferRate
+    fun horizonValue(days: Int, incomeAhead: Money, obligs: List<ObligationView>): Money {
+        val due = obligs.filter { it.dueInDays <= days }.fold(Money.ZERO) { acc, o -> acc + o.remaining }
+        return (liquid + incomeAhead - due - reserved - Money.of(essentialDaily * days) - riskBuffer)
+            .coerceAtLeast(Money.ZERO)
+    }
+    val monthDaysLeft = daysLeftInMonth(now)
+    val untilIncomeDays = if (hasSteady) 30 else 7
+    val safeToday = horizonValue(1, Money.ZERO, obligations)
+    val safeWeek = horizonValue(7, reliableMonthly * (7.0 / 30), obligations)
+    val safeUntilIncome = horizonValue(untilIncomeDays, reliableMonthly * (untilIncomeDays / 30.0), obligations)
+    val safeMonth = horizonValue(monthDaysLeft, reliableMonthly * (monthDaysLeft / 30.0), obligations)
+    val safeSemester = (flexible - upcomingFees - reservedGoals).coerceAtLeast(Money.ZERO)
+
+    // Forecast scenarios (§19): robust daily paces, one-offs quarantined,
+    // weekday-blind but anomaly-aware. Output is month-end FLEXIBLE money.
+    val dailySpend = flows.filter {
+        it.type == TransactionType.EXPENSE && it.dateTimestamp >= now - 28 * DAY_MS
+    }.groupBy { it.dateTimestamp / DAY_MS }.mapValues { (_, l) -> l.sumOf { it.amount } }.values.toList()
+    val typicalDaily = median(dailySpend)
+    val cleanDaily = dailySpend.filter { typicalDaily == 0.0 || it <= typicalDaily * 5 }
+    val paceTypical = median(cleanDaily)
+    val paceCautious = percentile(cleanDaily, 75.0)
+    val paceKind = percentile(cleanDaily, 25.0)
+    val billsDue = obligations.filter { it.dueInDays <= monthDaysLeft }.fold(Money.ZERO) { acc, o -> acc + o.remaining }
+    fun projectEnd(daily: Double, incomeIn: Money) =
+        (flexible + incomeIn - Money.of(daily * monthDaysLeft) - billsDue).coerceAtLeast(Money.ZERO)
+    val forecast = ForecastRange(
+        cautious = projectEnd(paceCautious, reliableMonthly * (monthDaysLeft / 30.0)),
+        typical = projectEnd(paceTypical, expectedMonthly * (monthDaysLeft / 30.0)),
+        favourable = projectEnd(paceKind, expectedMonthly * (monthDaysLeft / 30.0))
+    )
+
+    val explanations = mapOf(
+        "safeToday" to MetricExplanation(
+            label = "Safe to spend today",
+            headline = safeToday,
+            horizon = "today",
+            why = "Liquid money minus what is already committed, today's share of essentials and a safety buffer.",
+            contributors = listOf(
+                "Held ${MoneyFormatter.compact(liquid)}",
+                "Committed ${MoneyFormatter.compact(committed)}",
+                "Essentials today ≈ ${MoneyFormatter.compact(Money.of(essentialDaily))}",
+                "Buffer ${MoneyFormatter.compact(riskBuffer)}"
+            ),
+            basis = "${real.size} ledger rows over ~$spanDays days",
+            quality = quality
+        ),
+        "flexible" to MetricExplanation(
+            label = "Flexible money",
+            headline = flexible,
+            horizon = "now",
+            why = "Held cash minus everything already spoken for: bills, debts, goal and fee reservations.",
+            contributors = listOf(
+                "Held ${MoneyFormatter.compact(liquid)}",
+                "Bills ${MoneyFormatter.compact(upcomingBillsTotal)}",
+                "Debts owed ${MoneyFormatter.compact(upcomingDebtTotal)}",
+                "Reserved ${MoneyFormatter.compact(reserved)}"
+            ),
+            basis = "${obligations.size} open obligations, ${goalReservations.size} goal reservations",
+            quality = quality
+        ),
+        "forecast" to MetricExplanation(
+            label = "Typical month-end position",
+            headline = forecast.typical,
+            horizon = "month end",
+            why = "Current flexible money, typical daily pace, expected income and bills due before month end.",
+            contributors = listOf(
+                "Typical pace ${MoneyFormatter.compact(Money.of(paceTypical))}/day",
+                "Cautious ${MoneyFormatter.compact(forecast.cautious)} · favourable ${MoneyFormatter.compact(forecast.favourable)}"
+            ),
+            basis = "28-day median pace, one-offs quarantined",
+            quality = quality
+        ),
+        "netWorth" to MetricExplanation(
+            label = "Net worth",
+            headline = netWorth,
+            horizon = "now",
+            why = "Everything owned (liquid + savings + investments) minus everything owed.",
+            contributors = listOf(
+                "Assets ${MoneyFormatter.compact(totalAssets)}",
+                "Owed ${MoneyFormatter.compact(totalLiabilities)}"
+            ),
+            basis = "ledger + debt book",
+            quality = quality
+        )
+    )
+
+    return FinancialSnapshot(
+        liquid = liquid,
+        accounts = accounts,
+        committed = committed,
+        reserved = reserved,
+        flexible = flexible,
+        safeToday = safeToday,
+        safeWeek = safeWeek,
+        safeUntilIncome = safeUntilIncome,
+        safeMonth = safeMonth,
+        safeSemester = safeSemester,
+        primaryHorizon = primaryHorizon,
+        reliableIncomeAhead = reliableMonthly,
+        expectedIncomeAhead = expectedMonthly,
+        essentialAhead = Money.of(essentialDaily * 30),
+        obligations = obligations,
+        upcomingBillsTotal = upcomingBillsTotal,
+        upcomingDebtTotal = upcomingDebtTotal,
+        upcomingFees = upcomingFees,
+        goalReservations = goalReservations,
+        riskBuffer = riskBuffer,
+        totalAssets = totalAssets,
+        totalLiabilities = totalLiabilities,
+        netWorth = netWorth,
+        monthlyEarnedIncome = monthlyEarnedIncome,
+        forecast = forecast,
+        projectedEndFlexible = forecast.typical,
+        incomeReliabilities = incomeReliabilities,
+        helbExpected = helb,
+        helbFeesCovered = feesCovered,
+        helbUpkeep = upkeep,
+        quality = quality,
+        explanations = explanations
+    )
+}
+
+private fun monthlyLandedFor(
+    label: String,
+    kind: String,
+    txs: List<Transaction>,
+    monthStart: Long
+): Double {
+    return txs.filter {
+        it.type == TransactionType.INCOME && it.dateTimestamp >= monthStart && matchesSource(it, label, kind)
+    }.sumOf { it.amount }
+}
+
+private fun matchesSource(tx: Transaction, label: String, kind: String): Boolean {
+    if (label.isNotBlank() && tx.merchant.contains(label, ignoreCase = true)) return true
+    val keys = when {
+        kind.contains("HELB") -> listOf("helb")
+        kind == "JOB" -> listOf("salary", "wage", "pay")
+        kind == "HUSTLE" -> listOf("freelance", "gig", "kibarua", "hustle")
+        kind == "SCHOLARSHIP" -> listOf("scholarship", "bursary")
+        kind == "PARENT" || kind == "GUARDIAN" -> listOf("allowance", "upkeep", "support")
+        else -> emptyList()
+    }
+    return keys.any { tx.merchant.contains(it, ignoreCase = true) || tx.category.contains(it, ignoreCase = true) }
+}
