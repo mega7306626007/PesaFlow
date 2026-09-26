@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -51,6 +52,8 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.pesaflow.app.data.ledger.CategoryMemory
+import com.pesaflow.app.data.ledger.MerchantMemory
 import com.pesaflow.app.data.models.Transaction
 import com.pesaflow.app.data.models.TransactionType
 import com.pesaflow.app.viewmodels.exactDuplicateGroups
@@ -518,6 +521,12 @@ fun TransactionRow(
     onToggleSelect: (() -> Unit)? = null
 ) {
     val isIncome = tx.type == TransactionType.INCOME
+    val ctx = LocalContext.current
+    val prefs = remember { ctx.getSharedPreferences("pesaflow_prefs", android.content.Context.MODE_PRIVATE) }
+    var aliasTick by remember { mutableStateOf(0) }
+    val alias = remember(tx.merchant, aliasTick) { MerchantMemory.lookup(prefs, tx.merchant) }
+    var showAlias by remember { mutableStateOf(false) }
+    var aliasInput by remember(tx.merchant, showAlias) { mutableStateOf(alias?.label.orEmpty()) }
     Card(
         onClick = { onToggleSelect?.invoke() },
         enabled = onToggleSelect != null,
@@ -533,9 +542,9 @@ fun TransactionRow(
         ) {
             CategoryIcon(category = tx.category)
             Column(Modifier.weight(1f)) {
-                Text(tx.merchant.ifBlank { tx.category }, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(alias?.label ?: tx.merchant.ifBlank { tx.category }, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
-                    "${tx.category} · ${tx.paymentMethod.name.lowercase().replace('_', ' ').replaceFirstChar { c -> c.uppercase() }}",
+                    (if (alias != null && tx.merchant.isNotBlank()) tx.merchant + " · " else "") + "${tx.category} · ${tx.paymentMethod.name.lowercase().replace('_', ' ').replaceFirstChar { c -> c.uppercase() }}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1, overflow = TextOverflow.Ellipsis
@@ -569,12 +578,63 @@ fun TransactionRow(
                 }
             }
             if (showActions) {
+                IconButton(onClick = { showAlias = true }) { Icon(Icons.Filled.Person, contentDescription = "Name this sender") }
                 IconButton(onClick = onEdit) { Icon(Icons.Filled.Edit, contentDescription = "Edit transaction") }
                 IconButton(onClick = onDelete) {
                     Icon(Icons.Filled.Delete, contentDescription = "Delete transaction", tint = MaterialTheme.colorScheme.error)
                 }
             }
         }
+    }
+    if (showAlias) {
+        AlertDialog(
+            onDismissRequest = { showAlias = false },
+            title = { Text("Who is ${tx.merchant.ifBlank { tx.category }}?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Give them a name once — every future row from this sender shows it, and their category is remembered too.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = aliasInput,
+                        onValueChange = { aliasInput = it },
+                        label = { Text("Name (e.g. Mom)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (alias != null) {
+                        Text(
+                            "Now showing as “${alias.label}”.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (MerchantMemory.learnAlias(prefs, tx.merchant, aliasInput)) {
+                        CategoryMemory.learn(prefs, tx.merchant, tx.category)
+                        aliasTick++
+                    }
+                    showAlias = false
+                }) { Text("Save") }
+            },
+            dismissButton = {
+                Row {
+                    if (alias != null) {
+                        TextButton(onClick = {
+                            MerchantMemory.clear(prefs, tx.merchant)
+                            aliasTick++
+                            showAlias = false
+                        }) { Text("Forget") }
+                    }
+                    TextButton(onClick = { showAlias = false }) { Text("Cancel") }
+                }
+            }
+        )
     }
 }
 
