@@ -4,6 +4,16 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.pesaflow.app.data.database.AppDatabase
+import com.pesaflow.app.data.finance.Commute
+import com.pesaflow.app.data.finance.DebtLevel
+import com.pesaflow.app.data.finance.FinancialSnapshot
+import com.pesaflow.app.data.finance.FoodStyle
+import com.pesaflow.app.data.finance.Housing
+import com.pesaflow.app.data.finance.IncomeStability
+import com.pesaflow.app.data.finance.ProfileSignals
+import com.pesaflow.app.data.finance.SnapshotInput
+import com.pesaflow.app.data.finance.buildSnapshot
+import com.pesaflow.app.data.income.IncomeSource
 import com.pesaflow.app.data.ledger.CategoryMemory
 import com.pesaflow.app.data.ledger.LedgerGateway
 import com.pesaflow.app.data.models.*
@@ -57,6 +67,38 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     val confirmedRhythms: StateFlow<List<UserRhythm>> = repository.confirmedRhythms.stateIn(
         viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
     )
+
+    // Canonical snapshot (Phase 2): every screen will read money figures
+    // from here instead of re-deriving them (UI rewire lands Phase 11).
+    // Pure buildSnapshot over combined flows — the ViewModel orchestrates
+    // state, the finance package owns the math.
+    val financialSnapshot: StateFlow<FinancialSnapshot> = combine(
+        allTransactions, budgets, bills, debts, savingsGoals, universityProfile
+    ) { args ->
+        @Suppress("UNCHECKED_CAST")
+        val txs = args[0] as List<Transaction>
+        @Suppress("UNCHECKED_CAST")
+        val budgets = args[1] as List<Budget>
+        @Suppress("UNCHECKED_CAST")
+        val bills = args[2] as List<Bill>
+        @Suppress("UNCHECKED_CAST")
+        val debts = args[3] as List<Debt>
+        @Suppress("UNCHECKED_CAST")
+        val goals = args[4] as List<SavingsGoal>
+        val profile = args[5] as UniversityProfile?
+        val ctx = getApplication<Application>().applicationContext
+        val sources = com.pesaflow.app.data.income.IncomeSourceStore.load(ctx)
+        val persona = com.pesaflow.app.ui.budgets.parsePersona(getOnboardingAnswers())
+        buildSnapshot(
+            SnapshotInput(
+                txs = txs, budgets = budgets, bills = bills, debts = debts, goals = goals,
+                incomeSources = sources,
+                profile = persona.toSignals(profile, sources, debts),
+                helbExpected = profile?.helbExpected ?: 0.0,
+                feesAmount = profile?.feesAmount ?: 0.0
+            )
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), buildSnapshot(SnapshotInput(emptyList())))
 
     fun upsertRhythm(rhythm: UserRhythm) {
         viewModelScope.launch { repository.upsertRhythm(rhythm) }
@@ -1068,4 +1110,55 @@ fun exactDuplicateGroups(txs: List<Transaction>): List<List<Transaction>> {
             val dupes = ordered.drop(1).filter { it.dateTimestamp - keep.dateTimestamp <= 10 * 60 * 1000 }
             if (dupes.isEmpty()) null else listOf(keep) + dupes
         }
+}
+
+// Persona → ProfileSignals bridge (Phase 2): legacy six-persona presets
+// survive only as fallback mappings into multidimensional dimensions.
+// Declared answers and observed behaviour take over in Phases 6–8.
+private fun com.pesaflow.app.ui.budgets.Persona.toSignals(
+    profile: com.pesaflow.app.data.models.UniversityProfile?,
+    sources: List<IncomeSource>,
+    debts: List<com.pesaflow.app.data.models.Debt>
+): ProfileSignals {
+    val kinds = sources.map { it.kind }.toSet() +
+        (if (profile?.fundingSource != "SELF") setOf("HELB") else emptySet())
+    val stability = when {
+        kinds.any { it == "JOB" || it == "SALARY" } -> IncomeStability.FIXED
+        kinds.any { it == "HUSTLE" } && kinds.size == 1 -> IncomeStability.VARIABLE
+        kinds.isEmpty() -> IncomeStability.NONE
+        kinds.any { it == "HUSTLE" } -> IncomeStability.MIXED
+        else -> IncomeStability.MIXED
+    }
+    val owed = debts.filter { it.status != "PAID" && it.direction == "I_OWE" }.sumOf { it.amount }
+    return ProfileSignals(
+        housing = when (this) {
+            com.pesaflow.app.ui.budgets.Persona.PARENTS_FAR,
+            com.pesaflow.app.ui.budgets.Persona.PARENTS_NEAR -> Housing.PARENTS
+            com.pesaflow.app.ui.budgets.Persona.RENT_COMMUTE,
+            com.pesaflow.app.ui.budgets.Persona.RENT_WALK -> Housing.RENTAL
+            else -> Housing.HOSTEL
+        },
+        commute = when (this) {
+            com.pesaflow.app.ui.budgets.Persona.PARENTS_FAR,
+            com.pesaflow.app.ui.budgets.Persona.RENT_COMMUTE -> Commute.LONG
+            com.pesaflow.app.ui.budgets.Persona.PARENTS_NEAR -> Commute.SHORT
+            com.pesaflow.app.ui.budgets.Persona.RENT_WALK -> Commute.WALK
+            else -> Commute.SHORT
+        },
+        food = when (this) {
+            com.pesaflow.app.ui.budgets.Persona.HOSTEL_NOCOOK -> FoodStyle.BUY
+            com.pesaflow.app.ui.budgets.Persona.HOSTEL_COOK -> FoodStyle.COOK
+            com.pesaflow.app.ui.budgets.Persona.PARENTS_FAR,
+            com.pesaflow.app.ui.budgets.Persona.PARENTS_NEAR -> FoodStyle.HOME_FED
+            else -> FoodStyle.MIXED
+        },
+        incomeStability = stability,
+        incomeKinds = kinds,
+        debtLevel = when {
+            owed <= 0 -> DebtLevel.NONE
+            owed < 5000 -> DebtLevel.LOW
+            owed < 20000 -> DebtLevel.MEDIUM
+            else -> DebtLevel.HIGH
+        }
+    )
 }
