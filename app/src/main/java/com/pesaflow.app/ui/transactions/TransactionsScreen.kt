@@ -1,0 +1,581 @@
+package com.pesaflow.app.ui.transactions
+
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.pesaflow.app.data.models.Transaction
+import com.pesaflow.app.data.models.TransactionType
+import com.pesaflow.app.viewmodels.exactDuplicateGroups
+import com.pesaflow.app.R
+import com.pesaflow.app.ui.dashboard.QuickAddDialog
+import com.pesaflow.app.ui.theme.CategoryIcon
+import com.pesaflow.app.ui.theme.CinematicBackdrop
+import com.pesaflow.app.ui.theme.PesaEmptyState
+import com.pesaflow.app.ui.theme.PesaSectionHeader
+import com.pesaflow.app.ui.theme.PesaSpacing
+import com.pesaflow.app.ui.theme.TintTransactionsLedger
+import com.pesaflow.app.ui.theme.toKSh
+import com.pesaflow.app.viewmodels.FinanceViewModel
+import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
+
+private fun dayStartOf(ts: Long): Long {
+    val c = Calendar.getInstance().apply { timeInMillis = ts }
+    c.set(Calendar.HOUR_OF_DAY, 0); c.set(Calendar.MINUTE, 0)
+    c.set(Calendar.SECOND, 0); c.set(Calendar.MILLISECOND, 0)
+    return c.timeInMillis
+}
+
+private fun groupLabel(dayStart: Long, now: Long): String {
+    val fmt = SimpleDateFormat("EEEE, d MMM", Locale.getDefault())
+    return when (dayStart) {
+        dayStartOf(now) -> "TODAY"
+        dayStartOf(now) - 24L * 60 * 60 * 1000 -> "YESTERDAY"
+        else -> fmt.format(Date(dayStart)).uppercase(Locale.getDefault())
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@Composable
+fun TransactionsScreen(
+    viewModel: FinanceViewModel,
+    onQuickAdd: (TransactionType) -> Unit = {}
+) {
+    val transactions by viewModel.allTransactions.collectAsState()
+    var editingTx by remember { mutableStateOf<Transaction?>(null) }
+    var confirmDelete by remember { mutableStateOf<Transaction?>(null) }
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
+    val shareContext = LocalContext.current
+    var typeFilter by remember { mutableStateOf<String?>(null) }
+    var merchantQuery by remember { mutableStateOf("") }
+    var oldestFirst by remember { mutableStateOf(false) }
+    // Bulk mode: multi-select rows for share/delete. Range: quick time windows.
+    var selecting by remember { mutableStateOf(false) }
+    var selection by remember { mutableStateOf(setOf<String>()) }
+    var rangeDays by remember { mutableStateOf<Int?>(null) }
+    var confirmBulk by remember { mutableStateOf(false) }
+    val now = System.currentTimeMillis()
+    val sorted = remember(transactions, typeFilter, merchantQuery, rangeDays) {
+        val cutoff = when (rangeDays) {
+            0 -> dayStartOf(System.currentTimeMillis())
+            null -> 0L
+            else -> System.currentTimeMillis() - rangeDays!! * 24L * 60 * 60 * 1000
+        }
+        transactions
+            .filter { typeFilter == null || it.type.name == typeFilter }
+            .filter { merchantQuery.isBlank() || it.merchant.contains(merchantQuery, ignoreCase = true) || it.category.contains(merchantQuery, ignoreCase = true) }
+            .filter { it.dateTimestamp >= cutoff }
+            .sortedByDescending { it.dateTimestamp }
+    }
+    val orderedGroups = remember(sorted, oldestFirst) {
+        val g = sorted.groupBy { dayStartOf(it.dateTimestamp) }.toSortedMap(compareByDescending { it })
+        if (oldestFirst) g.toSortedMap(compareBy { it }) else g
+    }
+    // One share engine: footer shares the view, bulk bar shares the selection.
+    fun shareTxs(list: List<Transaction>) {
+        if (list.isEmpty()) return
+        val fmt = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+        val rows = list.map { tx ->
+            "${fmt.format(java.util.Date(tx.dateTimestamp))},\"${tx.merchant.replace("\"", "")}\",${tx.category},${tx.type},${tx.amount},${tx.paymentMethod}"
+        }
+        val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(android.content.Intent.EXTRA_SUBJECT, "PesaPlanner transactions")
+            putExtra(android.content.Intent.EXTRA_TEXT, (listOf("date,merchant,category,type,amount,method") + rows).joinToString("\n"))
+        }
+        shareContext.startActivity(android.content.Intent.createChooser(intent, "Share transactions"))
+    }
+    val groups = orderedGroups
+    // Chronological running balance (oldest → newest, samples excluded)
+    // regardless of the view's sort direction.
+    val runningById = remember(transactions) {
+        var run = 0.0
+        val map = LinkedHashMap<String, Double>()
+        transactions.filter { !it.isSample }.sortedBy { it.dateTimestamp }.forEach { tx ->
+            run += when (tx.type) {
+                TransactionType.INCOME -> tx.amount
+                TransactionType.EXPENSE -> -tx.amount
+                TransactionType.SAVING -> -tx.amount
+                TransactionType.INVESTMENT -> -tx.amount
+                TransactionType.TRANSFER -> 0.0
+            }
+            map[tx.id] = run
+        }
+        map
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        CinematicBackdrop(workspaceTint = TintTransactionsLedger, bgRes = R.drawable.bg_transactions_ledger)
+        Scaffold(
+            containerColor = Color.Transparent,
+            snackbarHost = { SnackbarHost(snackbar) },
+            topBar = {
+                TopAppBar(
+                    title = { Text("Transactions", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge.copy(shadow = Shadow(color = Color.Black.copy(alpha = 0.65f), offset = Offset(0f, 2f), blurRadius = 8f))) },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
+                )
+            }
+        ) { inner ->
+        if (sorted.isEmpty()) {
+            Column(Modifier.fillMaxSize().padding(inner).padding(PesaSpacing.md)) {
+                PesaEmptyState(
+                    title = if (transactions.isEmpty()) "No transactions yet" else "No matches",
+                    explanation = if (transactions.isEmpty()) "Your spending will appear here as you add transactions or import M-Pesa messages."
+                    else "Try fewer words or clear the type filter.",
+                    actionLabel = if (transactions.isEmpty()) "Add your first expense" else null,
+                    onAction = if (transactions.isEmpty()) ({ onQuickAdd(TransactionType.EXPENSE) }) else null
+                )
+            }
+        } else {
+            Column(Modifier.fillMaxSize().padding(inner).padding(horizontal = PesaSpacing.md)) {
+                OutlinedTextField(
+                    value = merchantQuery,
+                    onValueChange = { merchantQuery = it },
+                    label = { Text("Search merchant or category") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = typeFilter == null,
+                        onClick = { typeFilter = null },
+                        label = { Text("All") }
+                    )
+                    listOf("INCOME" to "In", "EXPENSE" to "Out", "SAVING" to "Saved", "INVESTMENT" to "Grown", "TRANSFER" to "Moved").forEach { (v, label) ->
+                        FilterChip(
+                            selected = typeFilter == v,
+                            onClick = { typeFilter = if (typeFilter == v) null else v },
+                            label = { Text(label) }
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = !oldestFirst, onClick = { oldestFirst = false }, label = { Text("Newest first") })
+                    FilterChip(selected = oldestFirst, onClick = { oldestFirst = true }, label = { Text("Oldest first") })
+                    FilterChip(
+                        selected = selecting,
+                        onClick = {
+                            selecting = !selecting
+                            if (!selecting) selection = emptySet()
+                        },
+                        label = { Text(if (selecting) "Done" else "Select") }
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = rangeDays == null, onClick = { rangeDays = null }, label = { Text("All time") })
+                    FilterChip(selected = rangeDays == 0, onClick = { rangeDays = if (rangeDays == 0) null else 0 }, label = { Text("Today") })
+                    FilterChip(selected = rangeDays == 7, onClick = { rangeDays = if (rangeDays == 7) null else 7 }, label = { Text("7 days") })
+                    FilterChip(selected = rangeDays == 30, onClick = { rangeDays = if (rangeDays == 30) null else 30 }, label = { Text("30 days") })
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+            LazyColumn(
+                Modifier.fillMaxSize().weight(1f),
+                verticalArrangement = Arrangement.spacedBy(PesaSpacing.xs)
+            ) {
+                item { Spacer(Modifier.height(PesaSpacing.xs)) }
+                groups.forEach { (day, txs) ->
+                    item(key = "h-$day") {
+                        val dayNet = txs.filter { !it.isSample }.sumOf {
+                            when (it.type) {
+                                TransactionType.INCOME -> it.amount
+                                TransactionType.EXPENSE -> -it.amount
+                                TransactionType.SAVING -> -it.amount
+                                TransactionType.INVESTMENT -> -it.amount
+                                TransactionType.TRANSFER -> 0.0
+                            }
+                        }
+                        val moved = txs.count { it.type == TransactionType.TRANSFER }
+                        PesaSectionHeader(
+                            title = groupLabel(day, now),
+                            subtitle = "${txs.size} item(s) · " + (if (dayNet >= 0) "+" else "−") + " KSh " + kotlin.math.abs(dayNet).toInt() + (if (moved > 0) " · $moved moved" else "")
+                        )
+                    }
+                    items(txs, key = { it.id }) { tx ->
+                        Box(Modifier) {
+                            TransactionRow(
+                                tx = tx,
+                                onEdit = { editingTx = tx },
+                                onDelete = { confirmDelete = tx },
+                                runningBalance = runningById[tx.id],
+                                selected = tx.id in selection,
+                                onToggleSelect = if (selecting) ({
+                                    selection = if (tx.id in selection) selection - tx.id else selection + tx.id
+                                }) else null
+                            )
+                        }
+                    }
+                    item { Spacer(Modifier.height(PesaSpacing.sm)) }
+                }
+                item { Spacer(Modifier.height(80.dp)) }
+            }
+            val viewIn = sorted.filter { it.type == TransactionType.INCOME && !it.isSample }.sumOf { it.amount }
+            val viewOut = sorted.filter { it.type == TransactionType.EXPENSE && !it.isSample }.sumOf { it.amount }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Showing ${sorted.size} · In KSh ${viewIn.toInt()} · Out KSh ${viewOut.toInt()} · Net " + (if (viewIn - viewOut >= 0) "+" else "−") + "KSh ${kotlin.math.abs(viewIn - viewOut).toInt()}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f)
+                )
+                    TextButton(onClick = { shareTxs(sorted) }) { Text("Share") }
+                }
+                // Bulk bar: share or delete the selection. Deletes confirm as a
+                // batch (no per-row undo across N rows) — honest destructive UX.
+                if (selecting && selection.isNotEmpty()) {
+                    val picked = remember(selection, transactions) { transactions.filter { it.id in selection } }
+                    val pickedTotal = picked.sumOf { it.amount }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "${selection.size} picked · KSh ${pickedTotal.toInt()}",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(onClick = { shareTxs(picked) }) { Text("Share") }
+                        TextButton(onClick = { confirmBulk = true }) {
+                            Text("Delete", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+                // Duplicate hunt: same amount + merchant more than once.
+                val dupClusters = remember(sorted) {
+                    sorted.filter { !it.isSample }.groupBy {
+                        "${it.amount}|${it.merchant.trim().lowercase()}"
+                    }.filter { it.value.size > 1 }.values.toList()
+                }
+                var mergeGroup by remember { mutableStateOf<List<Transaction>?>(null) }
+                // Auto-remove: exact matches only (same amount + merchant +
+                // day + method, minutes apart). Keeps the earliest, undoable.
+                val autoGroups = remember(sorted) { exactDuplicateGroups(sorted) }
+                val autoCount = autoGroups.sumOf { it.size - 1 }
+                var confirmAuto by remember { mutableStateOf(false) }
+                var autoResult by remember { mutableStateOf<String?>(null) }
+                if (dupClusters.isNotEmpty()) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(Modifier.fillMaxWidth().padding(PesaSpacing.md)) {
+                            Text(
+                                "Possible duplicates (${dupClusters.size})",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                "Same amount + merchant. Merge keeps the newest, deletes the rest.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            if (autoCount > 0) {
+                                TextButton(onClick = { confirmAuto = true }) {
+                                    Text("Auto-remove $autoCount exact")
+                                }
+                            }
+                            autoResult?.let { msg ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        msg,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    TextButton(onClick = {
+                                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        viewModel.undoAutoDedupe { n -> autoResult = "Restored $n row(s)" }
+                                    }) { Text("Undo") }
+                                }
+                            }
+                            dupClusters.take(5).forEach { g ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        "${g.first().merchant} · KSh ${g.first().amount.toInt()} (${g.size}×)",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    TextButton(onClick = { mergeGroup = g }) { Text("Review") }
+                                }
+                            }
+                        }
+                    }
+                }
+                if (confirmAuto) {
+                    AlertDialog(
+                        onDismissRequest = { confirmAuto = false },
+                        title = { Text("Remove $autoCount duplicates?") },
+                        text = { Text("Same amount, merchant, day and method within minutes. Keeps the earliest of each group — undo brings them back.") },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                viewModel.autoRemoveExactDuplicates(autoGroups) { n ->
+                                    confirmAuto = false
+                                    autoResult = "Removed $n exact duplicate(s)"
+                                }
+                            }) { Text("Remove") }
+                        },
+                        dismissButton = { TextButton(onClick = { confirmAuto = false }) { Text("Keep") } }
+                    )
+                }
+                // 14-day spending bars: text bars, zero new imports.
+                val dayMs = 24L * 60 * 60 * 1000
+                val last14 = remember(sorted) {
+                    val now = System.currentTimeMillis()
+                    (0 until 14).map { i ->
+                        val d0 = dayStartOf(now - i * dayMs)
+                        sorted.filter {
+                            it.type == TransactionType.EXPENSE && !it.isSample &&
+                                it.dateTimestamp in d0..(d0 + dayMs)
+                        }.sumOf { it.amount }
+                    }.reversed()
+                }
+                val peak14 = (last14.maxOrNull() ?: 0.0).coerceAtLeast(1.0)
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(Modifier.fillMaxWidth().padding(PesaSpacing.md)) {
+                        Text("Last 14 days", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        last14.forEachIndexed { i, v ->
+                            val bars = "█".repeat(((v / peak14) * 12).toInt().coerceIn(0, 12)).ifEmpty { "·" }
+                            Text(
+                                "D-${13 - i} $bars KSh ${v.toInt()}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                            )
+                        }
+                    }
+                }
+                // Top categories in this view.
+                val topCats = remember(sorted) {
+                    sorted.filter { it.type == TransactionType.EXPENSE && !it.isSample }
+                        .groupBy { it.category }.mapValues { e -> e.value.sumOf { it.amount } }
+                        .entries.sortedByDescending { it.value }.take(5)
+                }
+                if (topCats.isNotEmpty()) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(Modifier.fillMaxWidth().padding(PesaSpacing.md)) {
+                            Text("Top in view", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                            val topMax = topCats.first().value.coerceAtLeast(1.0)
+                            topCats.forEach { e ->
+                                val bars = "█".repeat(((e.value / topMax) * 10).toInt().coerceIn(0, 10)).ifEmpty { "·" }
+                                Text(
+                                    "${e.key} $bars KSh ${e.value.toInt()}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+                mergeGroup?.let { g ->
+                    AlertDialog(
+                        onDismissRequest = { mergeGroup = null },
+                        title = { Text("Merge ${g.size} rows?") },
+                        text = { Text("Keeps the newest ${g.first().merchant} KSh ${g.first().amount.toInt()}, deletes the other ${g.size - 1}. Batch deletes can't be undone.") },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                val keep = g.maxByOrNull { it.dateTimestamp }?.id
+                                g.filter { it.id != keep }.forEach { viewModel.deleteTransaction(it.id) }
+                                mergeGroup = null
+                            }) { Text("Merge", color = MaterialTheme.colorScheme.error) }
+                        },
+                        dismissButton = { TextButton(onClick = { mergeGroup = null }) { Text("Keep all") } }
+                    )
+                }
+            }
+        }
+    }
+    }
+
+    editingTx?.let {
+        QuickAddDialog(viewModel = viewModel, defaultType = it.type, onDismiss = { editingTx = null }, existing = it)
+    }
+
+    if (confirmBulk) {
+        val picked = transactions.filter { it.id in selection }
+        AlertDialog(
+            onDismissRequest = { confirmBulk = false },
+            title = { Text("Delete ${picked.size} transactions?") },
+            text = { Text("KSh ${picked.sumOf { it.amount }.toInt()} goes away. Batch deletes can't be undone — singles can.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    picked.forEach { viewModel.deleteTransaction(it.id) }
+                    selection = emptySet()
+                    selecting = false
+                    confirmBulk = false
+                }) { Text("Delete all", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmBulk = false }) { Text("Keep") } }
+        )
+    }
+
+    confirmDelete?.let { tx ->
+        AlertDialog(
+            onDismissRequest = { confirmDelete = null },
+            title = { Text("Delete this transaction?") },
+            text = { Text("${tx.merchant} · KSh ${tx.amount.toInt()} — you can undo right after.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    viewModel.deleteTransactionWithUndo(tx)
+                    confirmDelete = null
+                    scope.launch {
+                        val r = snackbar.showSnackbar("Deleted ${tx.merchant}.", "Undo", duration = SnackbarDuration.Long)
+                        if (r == SnackbarResult.ActionPerformed) viewModel.undoLast()
+                    }
+                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = null }) { Text("Keep") } }
+        )
+    }
+}
+
+@Composable
+fun TransactionRow(
+    tx: Transaction,
+    onEdit: () -> Unit = {},
+    onDelete: () -> Unit = {},
+    showActions: Boolean = true,
+    runningBalance: Double? = null,
+    selected: Boolean = false,
+    onToggleSelect: (() -> Unit)? = null
+) {
+    val isIncome = tx.type == TransactionType.INCOME
+    Card(
+        onClick = { onToggleSelect?.invoke() },
+        enabled = onToggleSelect != null,
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(PesaSpacing.sm),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(PesaSpacing.sm)
+        ) {
+            CategoryIcon(category = tx.category)
+            Column(Modifier.weight(1f)) {
+                Text(tx.merchant.ifBlank { tx.category }, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    "${tx.category} · ${tx.paymentMethod.name.lowercase().replace('_', ' ').replaceFirstChar { c -> c.uppercase() }}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    (when (tx.type) {
+                        TransactionType.INCOME -> "+ "
+                        TransactionType.TRANSFER -> "↔ "
+                        else -> "− "
+                    }) + tx.amount.toKSh().removePrefix("KSh "),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = when (tx.type) {
+                        TransactionType.INCOME -> Color(0xFF00C853)
+                        TransactionType.SAVING -> Color(0xFF00BFA5)
+                        TransactionType.INVESTMENT -> MaterialTheme.colorScheme.primary
+                        TransactionType.TRANSFER -> MaterialTheme.colorScheme.onSurfaceVariant
+                        else -> MaterialTheme.colorScheme.onSurface
+                    },
+                    maxLines = 1
+                )
+                if (runningBalance != null) {
+                    Text(
+                        "Bal " + (if (runningBalance < 0) "−" else "") + "KSh " + kotlin.math.abs(runningBalance).toInt(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1
+                    )
+                }
+            }
+            if (showActions) {
+                IconButton(onClick = onEdit) { Icon(Icons.Filled.Edit, contentDescription = "Edit transaction") }
+                IconButton(onClick = onDelete) {
+                    Icon(Icons.Filled.Delete, contentDescription = "Delete transaction", tint = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
+    }
+}
+
+private fun Double.toKShTrim(): String = this.toKSh()

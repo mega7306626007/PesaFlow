@@ -1,0 +1,237 @@
+package com.pesaflow.app.ui.dashboard
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import com.pesaflow.app.data.models.BudgetType
+import com.pesaflow.app.data.parsers.LedgerRow
+import com.pesaflow.app.ui.analytics.BudgetRing
+import com.pesaflow.app.ui.theme.AtmoType
+
+
+@Composable
+fun SafeToSpendCard(
+    transactions: List<com.pesaflow.app.data.models.Transaction>,
+    budgets: List<com.pesaflow.app.data.models.Budget>,
+    goals: List<com.pesaflow.app.data.models.SavingsGoal>,
+    bills: List<com.pesaflow.app.data.models.Bill>,
+    hide: Boolean = false
+) {
+    val monthly = budgets.firstOrNull { it.category == "ALL" }?.limitAmount?.takeIf { it > 0 }
+    val dailyExplicit = budgets.filter { it.type == BudgetType.DAILY }.sumOf { it.limitAmount }.takeIf { it > 0 }
+    val weeklyExplicit = budgets.filter { it.type == BudgetType.WEEKLY }.sumOf { it.limitAmount }.takeIf { it > 0 }
+    val nowMs = System.currentTimeMillis()
+    val dayMs = 24L * 60 * 60 * 1000
+    fun planDailyRate(g: com.pesaflow.app.data.models.SavingsGoal): Double {
+        val left = (g.targetAmount - g.currentAmount).coerceAtLeast(0.0)
+        if (left <= 0) return 0.0
+        val days = ((g.targetTimestamp - nowMs) / dayMs).coerceAtLeast(1)
+        return left / days
+    }
+    val planDaily = goals.sumOf { planDailyRate(it) }.toInt()
+    val topPlan = goals.filter { it.targetAmount > it.currentAmount }.maxByOrNull { it.targetAmount - it.currentAmount }
+    // PocketGuard-style leftover: upcoming open bills also come off the top, daily-shared
+    val billDaily = bills.filter { it.status != "PAID" }.sumOf { it.amount }.let { if (it > 0) (it / 30).toInt() else 0 }
+    val planNote = topPlan?.let { " That cash comes out of ${it.title}." } ?: ""
+    var mode by remember { mutableStateOf("Day") }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+    ) {
+        Column(
+            modifier = Modifier
+                .background(
+                    Brush.verticalGradient(
+                        listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.surface)
+                    )
+                )
+                .padding(20.dp)
+        ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("Safe to Spend 🛡️", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("Day", "Week").forEach { m ->
+                        FilterChip(selected = mode == m, onClick = { mode = m }, label = { Text(m) })
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            if (monthly == null && dailyExplicit == null) {
+                Text(
+                    "Set a Daily budget or a monthly ALL budget on the Budget tab and I'll compute your allowance — including yesterday's rollover, plans and bills.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                return@Column
+            }
+            val cal = java.util.Calendar.getInstance()
+            val dayStart = (cal.clone() as java.util.Calendar).apply {
+                set(java.util.Calendar.HOUR_OF_DAY, 0)
+                set(java.util.Calendar.MINUTE, 0)
+                set(java.util.Calendar.SECOND, 0)
+                set(java.util.Calendar.MILLISECOND, 0)
+            }.timeInMillis
+            val day = 24L * 60 * 60 * 1000
+            fun spentIn(from: Long, to: Long) = transactions.filter {
+                it.type == com.pesaflow.app.data.models.TransactionType.EXPENSE && !it.isSample && it.dateTimestamp >= from && it.dateTimestamp < to
+            }.sumOf { it.amount }.toInt()
+            // Weekday-aware pace: Saturdays that run hot earn a bigger slice,
+            // quiet Tuesdays a smaller one. Learned per weekday from the last
+            // 4 weeks (calendar-accurate); null (×1.0) until real history exists.
+            val paceProfile = remember(transactions) {
+                weekdayProfile(
+                    transactions.filter { !it.isSample }.map {
+                        LedgerRow(it.amount, it.type, it.category, it.merchant, it.dateTimestamp)
+                    },
+                    nowMs
+                )
+            }
+            val weekdayFactor = paceProfile?.let { factorForToday(it, nowMs) }
+
+            if (mode == "Day") {
+                val base = dailyExplicit ?: (monthly?.div(30) ?: 0.0)
+            val baseLabel = if (dailyExplicit != null) "your Daily budget" else "monthly ÷ 30"
+            val dailyTarget = (base - planDaily - billDaily).toInt().coerceAtLeast(0)
+                val yesterdaySpend = spentIn(dayStart - day, dayStart)
+                val todaySpend = spentIn(dayStart, Long.MAX_VALUE)
+                val rollover = dailyTarget - yesterdaySpend
+                val allowance = (dailyTarget * (weekdayFactor ?: 1.0)).toInt() + rollover
+                val left = allowance - todaySpend
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    BudgetRing(fraction = if (allowance > 0) todaySpend.toFloat() / allowance else 1f)
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column {
+                        Text(
+                            if (hide) "KSh ••••" else "KSh ${left.coerceAtLeast(0)}",
+                            style = AtmoType.figure,
+                            color = if (left < 0) Color.Red else MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            "left of KSh $allowance today" + if (planDaily > 0) " (KSh $planDaily/day kept for plans)" else "",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            Spacer(modifier = Modifier.height(8.dp))
+            SafeMathRow(label = "Daily target ($baseLabel)", value = "KSh ${base.toInt()}")
+            if (weekdayFactor != null) {
+                SafeMathRow(
+                    label = "Weekday pace (×${"%.1f".format(weekdayFactor)} today)",
+                    value = "KSh ${(dailyTarget * weekdayFactor).toInt()}"
+                )
+            }
+            SafeMathRow(label = "Yesterday", value = "−KSh $yesterdaySpend")
+            SafeMathRow(label = "Plans reserve", value = "−KSh $planDaily")
+            SafeMathRow(label = "Bills share", value = "−KSh $billDaily")
+            SafeMathRow(label = "Spent today", value = "−KSh $todaySpend")
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                when {
+                    yesterdaySpend == 0 && todaySpend == 0 ->
+                            "No spending logged the last two days — full KSh $allowance is available today."
+                        allowance <= 0 ->
+                            "Yesterday went KSh ${-rollover} over (KSh $yesterdaySpend vs KSh $dailyTarget) and wiped today out — spend KSh 0 if you can. 🛑"
+                        allowance < 100 ->
+                            "KSh $allowance left — prioritize: Food KSh ${(allowance * 0.8).toInt()} + essentials KSh ${(allowance * 0.2).toInt()}. 💪"
+                        yesterdaySpend <= dailyTarget ->
+                            "You spent KSh $yesterdaySpend yesterday instead of KSh $dailyTarget — congrats! 🎉 Today you can spend KSh $allowance."
+                        else ->
+                            "Yesterday went KSh ${-rollover} over (KSh $yesterdaySpend vs KSh $dailyTarget). Tighten today to KSh $allowance.$planNote"
+                    } + if (left < 0 && allowance > 0) " You've passed today's allowance — pause till tomorrow. ⏸️" else "",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                if (isUnusualDay(todaySpend.toDouble(), dailyTarget * (weekdayFactor ?: 1.0))) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "⚠️ Unusual day: KSh $todaySpend already vs KSh ${(dailyTarget * (weekdayFactor ?: 1.0)).toInt()} expected — pause non-essentials. ⏸️",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            } else {
+                val weekBase = weeklyExplicit ?: (monthly?.div(30)?.times(7) ?: 0.0)
+                val weekTarget = (weekBase - planDaily * 7 - billDaily * 7).toInt().coerceAtLeast(0)
+                val weekStart = dayStart - 6 * day
+                val prevWeekSpend = spentIn(weekStart - 7 * day, weekStart)
+                val thisWeekSpend = spentIn(weekStart, Long.MAX_VALUE)
+                val weekRollover = weekTarget - prevWeekSpend
+                val weekAllowance = weekTarget + weekRollover
+                val weekLeft = weekAllowance - thisWeekSpend
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    BudgetRing(fraction = if (weekAllowance > 0) thisWeekSpend.toFloat() / weekAllowance else 1f)
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column {
+                        Text(
+                            if (hide) "KSh ••••" else "KSh ${weekLeft.coerceAtLeast(0)}",
+                            style = AtmoType.figure,
+                            color = if (weekLeft < 0) Color.Red else MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            "left of KSh $weekAllowance this week" + if (planDaily > 0) " (plans keep KSh ${planDaily * 7}/week)" else "",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    when {
+                        weekAllowance <= 0 ->
+                            "Last week went KSh ${-weekRollover} over and wiped this week out — essentials only. 🛑"
+                        weekAllowance < 100 * 7 ->
+                            "KSh $weekAllowance this week (~KSh ${(weekAllowance / 7).toInt()}/day) — prioritize: Food KSh ${(weekAllowance * 0.6).toInt()} + essentials KSh ${(weekAllowance * 0.4).toInt()}. 💪"
+                        prevWeekSpend <= weekTarget ->
+                            "Last 7 days before this week cost KSh $prevWeekSpend vs KSh $weekTarget target — nice! 🎉 This week you can spend KSh $weekAllowance."
+                        else ->
+                            "Last week went KSh ${-weekRollover} over (KSh $prevWeekSpend vs KSh $weekTarget). This week tighten to KSh $weekAllowance.$planNote"
+                    } + if (weekLeft < 0 && weekAllowance > 0) " You've passed the weekly allowance — pause till next week. ⏸️" else "",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+    }
+}
+
+
+@Composable
+private fun SafeMathRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+    }
+}

@@ -1,0 +1,146 @@
+package com.pesaflow.app.parsers
+
+import com.pesaflow.app.data.models.AppLanguage
+import com.pesaflow.app.data.models.PaymentMethod
+import com.pesaflow.app.data.models.Transaction
+import com.pesaflow.app.data.models.TransactionSource
+import com.pesaflow.app.data.models.TransactionType
+import com.pesaflow.app.ui.dashboard.buildInsights
+import com.pesaflow.app.ui.dashboard.monthEndForecast
+import org.junit.Assert.*
+import org.junit.Test
+
+
+class SmartInsightsEngineTest {
+
+    private fun tx(amount: Double, type: TransactionType, category: String) = Transaction(
+        amount = amount,
+        type = type,
+        category = category,
+        dateTimestamp = System.currentTimeMillis(),
+        merchant = "Test",
+        description = "",
+        paymentMethod = PaymentMethod.CASH,
+        source = TransactionSource.MANUAL
+    )
+
+    @Test
+    fun `empty history returns single hint`() {
+        val out = buildInsights(emptyList(), emptyList(), AppLanguage.ENGLISH, "", emptyList(), emptyList(), emptyList())
+        assertEquals(1, out.size)
+        assertTrue(out[0].contains("Add transactions"))
+    }
+
+    @Test
+    fun `top category insight names food`() {
+        val txs = listOf(
+            tx(800.0, TransactionType.EXPENSE, "Food"),
+            tx(200.0, TransactionType.EXPENSE, "Transport")
+        )
+        val out = buildInsights(txs, emptyList(), AppLanguage.ENGLISH, "", emptyList(), emptyList(), emptyList())
+        assertTrue(out.any { it.contains("Food") })
+    }
+
+    @Test
+    fun `over income verdict appears when overspent`() {
+        val txs = listOf(
+            tx(1000.0, TransactionType.INCOME, "Salary"),
+            tx(1500.0, TransactionType.EXPENSE, "Shopping")
+        )
+        val out = buildInsights(txs, emptyList(), AppLanguage.ENGLISH, "", emptyList(), emptyList(), emptyList())
+        assertTrue(out.any { it.contains("Danger") })
+    }
+
+    @Test
+    fun `sheng output differs from english`() {
+        val txs = listOf(tx(100.0, TransactionType.EXPENSE, "Food"))
+        val en = buildInsights(txs, emptyList(), AppLanguage.ENGLISH, "", emptyList(), emptyList(), emptyList())
+        val sh = buildInsights(txs, emptyList(), AppLanguage.SHENG, "", emptyList(), emptyList(), emptyList())
+        assertNotEquals(en, sh)
+    }
+
+    @Test
+    fun `forecast math finds broke day`() {
+        val c = java.util.Calendar.getInstance()
+        c.set(2026, java.util.Calendar.OCTOBER, 10, 12, 0, 0)
+        c.set(java.util.Calendar.MILLISECOND, 0)
+        val fc = monthEndForecast(9000.0, 900.0, 10000.0, 0.0, c.timeInMillis)
+        assertEquals(12, fc.brokeDay)
+        assertEquals(21, fc.daysLeft)
+        assertEquals(27900.0, fc.projectedTotal, 0.01)
+    }
+
+    @Test
+    fun `already over when held cash is gone`() {
+        val txs = listOf(tx(9000.0, TransactionType.EXPENSE, "Shopping"))
+        val out = buildInsights(txs, emptyList(), AppLanguage.ENGLISH, "", emptyList(), emptyList(), emptyList(), heldBalance = 1000.0)
+        assertTrue(out.any { it.contains("already over") })
+    }
+
+    @Test
+    fun `reassurance when pace fits held cash`() {
+        val txs = listOf(tx(9000.0, TransactionType.EXPENSE, "Shopping"))
+        val out = buildInsights(txs, emptyList(), AppLanguage.ENGLISH, "", emptyList(), emptyList(), emptyList(), heldBalance = 10_000_000.0)
+        assertTrue(out.any { it.contains("inside your") })
+    }
+
+    @Test
+    fun `hustle lens reports landed share`() {
+        val txs = listOf(tx(500.0, TransactionType.EXPENSE, "Food"))
+        val out = buildInsights(txs, emptyList(), AppLanguage.ENGLISH, "", emptyList(), emptyList(), emptyList(), hustleExpected = 4000.0, hustleLanded = 1000.0)
+        assertTrue(out.any { it.contains("Hustle lens") && it.contains("25%") })
+    }
+
+    @Test
+    fun `no hustle declared means no hustle lens`() {
+        val txs = listOf(tx(500.0, TransactionType.EXPENSE, "Food"))
+        val out = buildInsights(txs, emptyList(), AppLanguage.ENGLISH, "", emptyList(), emptyList(), emptyList())
+        assertTrue(out.none { it.contains("Hustle lens") })
+    }
+
+    @Test
+    fun `stale busy day is flagged`() {
+        val txs = (1..3).map { w ->
+            val c = java.util.Calendar.getInstance()
+            c.add(java.util.Calendar.DAY_OF_MONTH, -7 * w)
+            while (c.get(java.util.Calendar.DAY_OF_WEEK) != java.util.Calendar.MONDAY) c.add(java.util.Calendar.DAY_OF_MONTH, -1)
+            c.set(java.util.Calendar.HOUR_OF_DAY, 8)
+            c.set(java.util.Calendar.MINUTE, 0)
+            c.set(java.util.Calendar.SECOND, 0)
+            c.set(java.util.Calendar.MILLISECOND, 0)
+            tx(c.timeInMillis, TransactionType.EXPENSE, "Transport")
+        }
+        val out = buildInsights(
+            txs, emptyList(), AppLanguage.ENGLISH, "", emptyList(), emptyList(), emptyList(),
+            weekPlan = mapOf("Sat" to setOf("morning"))
+        )
+        assertTrue(out.any { it.contains("Timetable check") && it.contains("Sat") })
+    }
+
+    @Test
+    fun `matching grid stays quiet`() {
+        val c = java.util.Calendar.getInstance()
+        while (c.get(java.util.Calendar.DAY_OF_WEEK) != java.util.Calendar.MONDAY) c.add(java.util.Calendar.DAY_OF_MONTH, -1)
+        c.set(java.util.Calendar.HOUR_OF_DAY, 8)
+        c.set(java.util.Calendar.MINUTE, 0)
+        c.set(java.util.Calendar.SECOND, 0)
+        c.set(java.util.Calendar.MILLISECOND, 0)
+        val txs = listOf(tx(c.timeInMillis, TransactionType.EXPENSE, "Transport"))
+        val out = buildInsights(
+            txs, emptyList(), AppLanguage.ENGLISH, "", emptyList(), emptyList(), emptyList(),
+            weekPlan = mapOf("Mon" to setOf("morning"))
+        )
+        assertTrue(out.none { it.contains("Timetable check") })
+    }
+
+    private fun tx(ts: Long, type: TransactionType, category: String) = Transaction(
+        amount = 50.0,
+        type = type,
+        category = category,
+        dateTimestamp = ts,
+        merchant = "Test",
+        description = "",
+        paymentMethod = PaymentMethod.CASH,
+        source = TransactionSource.MANUAL
+    )
+}

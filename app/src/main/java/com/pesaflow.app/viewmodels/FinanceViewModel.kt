@@ -1,0 +1,1071 @@
+package com.pesaflow.app.viewmodels
+
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.pesaflow.app.data.database.AppDatabase
+import com.pesaflow.app.data.ledger.CategoryMemory
+import com.pesaflow.app.data.ledger.LedgerGateway
+import com.pesaflow.app.data.models.*
+import com.pesaflow.app.data.parsers.NaturalLanguageParser
+import com.pesaflow.app.data.repositories.FinanceRepository
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
+
+
+class FinanceViewModel(application: Application) : AndroidViewModel(application) {
+
+
+    private val database: AppDatabase = AppDatabase.getDatabase(application)
+    private val repository: FinanceRepository = FinanceRepository(database)
+
+
+    // StateFlows for UI
+    val allTransactions: StateFlow<List<Transaction>> = repository.allTransactions.stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
+    )
+    val pendingTransactions: StateFlow<List<PendingTransaction>> = repository.pendingTransactions.stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
+    )
+    val budgets: StateFlow<List<Budget>> = repository.budgets.stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
+    )
+    val savingsGoals: StateFlow<List<SavingsGoal>> = repository.savingsGoals.stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
+    )
+    val universityProfile: StateFlow<UniversityProfile?> = repository.universityProfile.stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5000), null
+    )
+    val bills: StateFlow<List<Bill>> = repository.allBills.stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
+    )
+    val debts: StateFlow<List<Debt>> = repository.allDebts.stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
+    )
+    val mealItems: StateFlow<List<MealItem>> = repository.allMealItems.stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
+    )
+    val belongings: StateFlow<List<Belonging>> = repository.allBelongings.stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
+    )
+    val kitchenStock: StateFlow<List<KitchenStock>> = repository.allKitchenStock.stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
+    )
+    val userRhythms: StateFlow<List<UserRhythm>> = repository.userRhythms.stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
+    )
+    val confirmedRhythms: StateFlow<List<UserRhythm>> = repository.confirmedRhythms.stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
+    )
+
+    fun upsertRhythm(rhythm: UserRhythm) {
+        viewModelScope.launch { repository.upsertRhythm(rhythm) }
+    }
+
+    fun confirmRhythm(id: String) {
+        viewModelScope.launch { repository.confirmRhythm(id) }
+    }
+
+    fun dismissRhythm(id: String) {
+        viewModelScope.launch { repository.dismissRhythm(id) }
+    }
+
+
+    // Runtime state bindings
+    val currentLanguage = MutableStateFlow(AppLanguage.MIXED)
+    val nlpInputText = MutableStateFlow("")
+    val extractedNlpTransaction = MutableStateFlow<PendingTransaction?>(null)
+    val userName = MutableStateFlow("")
+    val nickname = MutableStateFlow("")
+    val themeMode = MutableStateFlow(AppTheme.DARK)
+    val hideBalances = MutableStateFlow(false)
+    val hiddenSections = MutableStateFlow(setOf<String>())
+
+
+    init {
+        // Restore persisted identity + preferences (no new dependencies: SharedPreferences only).
+        // NOTE: this block must stay AFTER the StateFlow declarations above:
+        // init blocks run in textual order.
+        val prefs = getApplication<Application>().getSharedPreferences("pesaflow_prefs", android.content.Context.MODE_PRIVATE)
+        userName.value = prefs.getString("user_name", "") ?: ""
+        nickname.value = prefs.getString("user_nickname", "") ?: ""
+        currentLanguage.value = try {
+            AppLanguage.valueOf(prefs.getString("app_language", "MIXED") ?: "MIXED")
+        } catch (e: Exception) {
+            AppLanguage.MIXED
+        }
+        themeMode.value = try {
+            AppTheme.valueOf(prefs.getString("app_theme", "DARK") ?: "DARK")
+        } catch (e: Exception) {
+            AppTheme.DARK
+        }
+        hideBalances.value = prefs.getBoolean("hide_balances", false)
+        hiddenSections.value = (prefs.getString("hidden_sections", "") ?: "")
+            .split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
+    }
+
+
+    private fun prefs() = getApplication<Application>().getSharedPreferences("pesaflow_prefs", android.content.Context.MODE_PRIVATE)
+
+
+    // Computed metrics
+    val availableBalance: StateFlow<Double> = allTransactions.map { txs ->
+        txs.filter { !it.isSample }.sumOf {
+            when (it.type) {
+                TransactionType.INCOME -> it.amount
+                TransactionType.EXPENSE -> -it.amount
+                TransactionType.SAVING -> -it.amount
+                TransactionType.INVESTMENT -> -it.amount
+                TransactionType.TRANSFER -> 0.0
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+
+    private fun signedAmount(tx: Transaction): Double = when (tx.type) {
+        TransactionType.INCOME -> tx.amount
+        TransactionType.EXPENSE -> -tx.amount
+        TransactionType.SAVING -> -tx.amount
+        TransactionType.INVESTMENT -> -tx.amount
+        TransactionType.TRANSFER -> 0.0
+    }
+
+
+    // Per-method balances: the pooled number hides which pocket holds the
+    // money. M-Pesa wallet vs cash in hand vs bank, samples excluded.
+    val mpesaBalance: StateFlow<Double> = allTransactions.map { txs ->
+        txs.filter { !it.isSample && it.paymentMethod == PaymentMethod.MPESA }.sumOf { signedAmount(it) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+
+    val cashBalance: StateFlow<Double> = allTransactions.map { txs ->
+        txs.filter { !it.isSample && it.paymentMethod == PaymentMethod.CASH }.sumOf { signedAmount(it) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+
+    val bankBalance: StateFlow<Double> = allTransactions.map { txs ->
+        txs.filter { !it.isSample && it.paymentMethod == PaymentMethod.BANK_TRANSFER }.sumOf { signedAmount(it) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+
+    // Last wallet balance harvested from SMS ("New M-PESA balance is KSh X").
+    // Display + reconciliation only — the ledger stays the source of truth.
+    val smsWalletBalance: StateFlow<Pair<Double, Long>?> = allTransactions.map {
+        com.pesaflow.app.data.parsers.readMpesaBalance(getApplication())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+
+    val monthlyIncome: StateFlow<Double> = allTransactions.map { txs ->
+        txs.filter { it.type == TransactionType.INCOME && !it.isSample && isCurrentMonth(it.dateTimestamp) }.sumOf { it.amount}
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+
+    val monthlyExpenses: StateFlow<Double> = allTransactions.map { txs ->
+        txs.filter { it.type == TransactionType.EXPENSE && !it.isSample && isCurrentMonth(it.dateTimestamp) }.sumOf { it.amount}
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+
+    val totalSavings: StateFlow<Double> = allTransactions.map { txs ->
+        txs.filter { it.type == TransactionType.SAVING && !it.isSample }.sumOf { it.amount }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+
+    // UI actions
+    // UI actions — date/isSample/batchId default to the common case so every
+    // existing caller keeps working; gateway and backdate pass explicit values.
+    fun addManualTransaction(amount: Double, type: TransactionType, category: String, merchant: String, method: PaymentMethod, dateTimestamp: Long = System.currentTimeMillis(), isSample: Boolean = false, batchId: String? = null, notes: String = "") {
+        viewModelScope.launch {
+            val tx = LedgerGateway.commit(
+                repository, amount, type, category, merchant, method,
+                TransactionSource.MANUAL, dateTimestamp, "Manual Input Record Entry",
+                isSample, batchId, notes
+            )
+            // The user's explicit choice is ground truth — teach the engine.
+            if (tx != null) {
+                CategoryMemory.learn(prefs(), tx.merchant, tx.category)
+                // Auto-attach: a manual log matching a pending row means the user
+                // already handled it — retire the pending so it can't double-enter.
+                retireMatchingPendings(tx.amount, tx.merchant, tx.dateTimestamp)
+            }
+        }
+    }
+
+
+    /** Retires pendings that duplicate an already-committed row (same amount +
+     *  merchant within ±24h). Silent by design — the ledger row is the proof. */
+    suspend fun retireMatchingPendings(amount: Double, merchant: String, timestamp: Long) {
+        val norm = merchant.trim().lowercase()
+        val window = 24L * 60 * 60 * 1000
+        repository.pendingTransactions.first()
+            .filter {
+                it.amount == amount && it.merchant.trim().lowercase() == norm &&
+                    kotlin.math.abs(it.dateTimestamp - timestamp) < window
+            }
+            .forEach { repository.deletePendingTransaction(it.id) }
+    }
+
+
+    /** Pre-save duplicate check for the "save anyway?" dialog. Confirmed
+     *  ledger only — pendings are auto-attached, not blocked. */
+    suspend fun hasConfirmedDuplicate(amount: Double, merchant: String, timestamp: Long): Transaction? {
+        val norm = merchant.trim().lowercase()
+        val window = 24L * 60 * 60 * 1000
+        return repository.allTransactions.first().firstOrNull {
+            !it.isSample && it.amount == amount && it.merchant.trim().lowercase() == norm &&
+                kotlin.math.abs(it.dateTimestamp - timestamp) < window
+        }
+    }
+
+
+    fun parseAndProcessNlp() {
+        val parsed = NaturalLanguageParser.parse(nlpInputText.value)
+        extractedNlpTransaction.value = parsed
+    }
+
+
+    fun commitExtractedNlp() {
+        val tx = extractedNlpTransaction.value ?: return
+        viewModelScope.launch {
+            val saved = LedgerGateway.commit(
+                repository, tx.amount, tx.type, tx.category, tx.merchant,
+                tx.paymentMethod, TransactionSource.NLP, tx.dateTimestamp, tx.rawText
+            )
+            if (saved != null) CategoryMemory.learn(prefs(), saved.merchant, saved.category)
+            extractedNlpTransaction.value = null
+            nlpInputText.value = ""
+        }
+    }
+
+
+    sealed interface Undoable {
+        data class Approved(val pending: PendingTransaction, val txId: String) : Undoable
+        data class Rejected(val pending: PendingTransaction) : Undoable
+        data class Deleted(val tx: Transaction) : Undoable
+    }
+
+    // Undo window: last 5 destructive actions, not just one — rapid
+    // approve-existing-approve bursts stay recoverable.
+    private val undoStack = ArrayDeque<Undoable>(5)
+
+
+    private fun pushUndo(u: Undoable) {
+        if (undoStack.size >= 5) undoStack.removeFirst()
+        undoStack.addLast(u)
+    }
+
+
+    fun approvePending(pending: PendingTransaction, finalCategory: String, finalType: TransactionType = pending.type) {
+        viewModelScope.launch {
+            val tx = repository.approvePendingTransaction(pending, finalCategory, finalType)
+            pushUndo(Undoable.Approved(pending, tx.id))
+            // Approvals are corrections too — teach the engine.
+            CategoryMemory.learn(prefs(), tx.merchant, finalCategory)
+            com.pesaflow.app.data.ledger.ConfidenceMemory.record(prefs(), pending.merchant, true)
+        }
+    }
+
+
+    fun rejectPending(pending: PendingTransaction) {
+        viewModelScope.launch {
+            repository.rejectPendingTransaction(pending.id)
+            pushUndo(Undoable.Rejected(pending))
+            // Rejections teach too — this merchant stops looking "sure".
+            com.pesaflow.app.data.ledger.ConfidenceMemory.record(prefs(), pending.merchant, false)
+        }
+    }
+
+
+    fun deleteTransactionWithUndo(tx: Transaction) {
+        viewModelScope.launch {
+            repository.deleteTransaction(tx.id)
+            pushUndo(Undoable.Deleted(tx))
+        }
+    }
+
+
+    fun replaceTransaction(oldId: String, tx: Transaction) {
+        viewModelScope.launch {
+            repository.deleteTransaction(oldId)
+            repository.insertTransaction(tx)
+        }
+    }
+
+
+    fun undoLast() {
+        val undone = if (undoStack.isEmpty()) return else undoStack.removeLast()
+        viewModelScope.launch {
+            when (undone) {
+                is Undoable.Approved -> {
+                    repository.deleteTransaction(undone.txId)
+                    repository.insertPendingTransaction(undone.pending)
+                }
+                is Undoable.Rejected -> repository.insertPendingTransaction(undone.pending)
+                is Undoable.Deleted -> repository.insertTransaction(undone.tx)
+            }
+        }
+    }
+
+
+    fun queueSharedTransaction(pending: PendingTransaction) {
+        viewModelScope.launch { repository.insertPendingTransaction(pending) }
+    }
+
+
+    // Suspend variant for inbox scans that need to know inserted vs duplicate.
+    suspend fun tryQueuePending(pending: PendingTransaction): Boolean =
+        repository.insertPendingTransaction(pending)
+
+
+    fun queueSharedText(text: String) {
+        val parsed = NaturalLanguageParser.parse(text)
+        if (parsed != null) {
+            viewModelScope.launch { repository.insertPendingTransaction(parsed) }
+        }
+        // Unparseable text is ignored: no junk rows ever reach the ledger.
+    }
+
+
+    fun addBudget(category: String, limitAmount: Double, type: BudgetType, sharedWith: String = "") {
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            val day = 24L * 60 * 60 * 1000
+            val end = now + when (type) {
+                BudgetType.DAILY -> day
+                BudgetType.WEEKLY -> 7 * day
+                BudgetType.MONTHLY -> 30 * day
+                BudgetType.SEMESTER -> 120 * day
+                BudgetType.ANNUAL -> 365 * day
+            }
+            repository.insertBudget(
+                Budget(category = category, limitAmount = limitAmount, type = type, startTimestamp = now, endTimestamp = end, sharedWith = sharedWith)
+            )
+        }
+    }
+
+
+    // Upsert: onboarding re-runs must UPDATE the same category+type row, never
+    // stack duplicates — every reader takes firstOrNull, so dupes freeze stale values.
+    // Single coroutine (no nested launch): delete-then-insert is atomic from the caller's view.
+    fun upsertBudget(category: String, limitAmount: Double, type: BudgetType, sharedWith: String = "") {
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            val day = 24L * 60 * 60 * 1000
+            val end = now + when (type) {
+                BudgetType.DAILY -> day
+                BudgetType.WEEKLY -> 7 * day
+                BudgetType.MONTHLY -> 30 * day
+                BudgetType.SEMESTER -> 120 * day
+                BudgetType.ANNUAL -> 365 * day
+            }
+            repository.budgets.first()
+                .filter { it.type == type && it.category.equals(category, ignoreCase = true) }
+                .forEach { repository.deleteBudget(it.id) }
+            repository.insertBudget(
+                Budget(category = category, limitAmount = limitAmount, type = type, startTimestamp = now, endTimestamp = end, sharedWith = sharedWith)
+            )
+        }
+    }
+
+
+    // Opening money: pocket cash + monthly upkeep become real ledger INCOME rows
+    // (guarded by merchant tag, so re-onboarding never double-logs). Everything
+    // downstream — balance, net worth, reports, planners — picks them up.
+    fun seedOpeningMoney(pocket: Double, monthlyUpkeep: Double) {
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            val existing = repository.allTransactions.first()
+            if (pocket > 0 && existing.none { it.merchant == "Opening balance" && it.type == TransactionType.INCOME }) {
+                repository.insertTransaction(
+                    Transaction(
+                        amount = pocket,
+                        type = TransactionType.INCOME,
+                        category = "Income",
+                        dateTimestamp = now,
+                        merchant = "Opening balance",
+                        description = "Pocket cash from onboarding",
+                        paymentMethod = PaymentMethod.CASH
+                    )
+                )
+            }
+            if (monthlyUpkeep > 0 && existing.none { it.merchant == "Monthly upkeep" && it.type == TransactionType.INCOME }) {
+                repository.insertTransaction(
+                    Transaction(
+                        amount = monthlyUpkeep,
+                        type = TransactionType.INCOME,
+                        category = "Income",
+                        dateTimestamp = now,
+                        merchant = "Monthly upkeep",
+                        description = "Home/sponsor monthly upkeep, in hand",
+                        paymentMethod = PaymentMethod.CASH
+                    )
+                )
+            }
+        }
+    }
+
+
+    fun shareBudget(id: String, names: String) {
+        viewModelScope.launch { repository.updateBudgetShared(id, names) }
+    }
+
+
+    fun deleteBudget(id: String) {
+        viewModelScope.launch { repository.deleteBudget(id) }
+    }
+
+
+    fun applyCalculatedBudgets(rows: List<Pair<String, Double>>, type: BudgetType) {
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            val day = 24L * 60 * 60 * 1000
+            val span = when (type) {
+                BudgetType.DAILY -> day
+                BudgetType.WEEKLY -> 7 * day
+                BudgetType.MONTHLY -> 30 * day
+                BudgetType.SEMESTER -> 120 * day
+                BudgetType.ANNUAL -> 365 * day
+            }
+            // Merge with manual budgets: only replace same-type budgets whose
+            // category is in the new plan — hand-made ones for other
+            // categories survive an Apply instead of being wiped.
+            val incoming = rows.map { it.first.trim().lowercase() }.toSet()
+            repository.budgets.first()
+                .filter { it.type == type && incoming.contains(it.category.trim().lowercase()) }
+                .forEach { repository.deleteBudget(it.id) }
+            rows.forEach { (category, amount) ->
+                if (amount > 0) {
+                    repository.insertBudget(
+                        Budget(
+                            category = category,
+                            limitAmount = amount,
+                            type = type,
+                            startTimestamp = now,
+                            endTimestamp = now + span
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+
+    fun addSavingsGoal(title: String, targetAmount: Double, daysFromNow: Int) {
+        viewModelScope.launch {
+            val target = System.currentTimeMillis() + daysFromNow.coerceAtLeast(1) * 24L * 60 * 60 * 1000
+            repository.insertSavingsGoal(
+                SavingsGoal(title = title, targetAmount = targetAmount, currentAmount = 0.0, targetTimestamp = target)
+            )
+        }
+    }
+
+
+    fun deleteSavingsGoal(id: String) {
+        viewModelScope.launch { repository.deleteSavingsGoal(id) }
+    }
+
+
+    // Contribute logs a real SAVING ledger row AND bumps the goal, so net worth,
+    // balance, reports and planners all move together. One tap = new money in.
+    fun contributeToSavingsGoal(goal: SavingsGoal, amount: Double) {
+        viewModelScope.launch {
+            if (amount <= 0) return@launch
+            repository.insertTransaction(
+                Transaction(
+                    amount = amount,
+                    type = TransactionType.SAVING,
+                    category = "Savings",
+                    dateTimestamp = System.currentTimeMillis(),
+                    merchant = goal.title,
+                    description = "Saved toward ${goal.title}",
+                    paymentMethod = PaymentMethod.CASH
+                )
+            )
+            repository.contributeToSavingsGoal(goal.id, goal.currentAmount + amount)
+        }
+    }
+
+
+    fun saveUniversityProfile(profile: UniversityProfile) {
+        viewModelScope.launch { repository.saveUniversityProfile(profile) }
+    }
+
+
+    fun addBill(name: String, amount: Double, dueDate: Long, category: String, frequency: String) {
+        viewModelScope.launch {
+            repository.insertBill(
+                Bill(name = name, amount = amount, dueDate = dueDate, category = category, frequency = frequency)
+            )
+            // Bills drive budgets: a recurring bill adjusts (never duplicates) its monthly budget
+            if (frequency != "ONE_TIME" && category.isNotBlank()) {
+                val existing = repository.budgets.first().firstOrNull {
+                    it.type == BudgetType.MONTHLY && it.category.equals(category, ignoreCase = true)
+                }
+                if (existing == null) {
+                    val now = System.currentTimeMillis()
+                    repository.insertBudget(
+                        Budget(
+                            category = category,
+                            limitAmount = amount,
+                            type = BudgetType.MONTHLY,
+                            startTimestamp = now,
+                            endTimestamp = now + 30L * 24 * 60 * 60 * 1000
+                        )
+                    )
+                } else if (amount > existing.limitAmount) {
+                    repository.updateBudgetAmount(existing.id, amount)
+                }
+            }
+        }
+    }
+
+
+    fun markBillPaid(id: String) {
+        viewModelScope.launch { repository.markBillPaid(id) }
+    }
+
+
+    fun updateBillDetails(bill: Bill, name: String, amount: Double, category: String, frequency: String) {
+        viewModelScope.launch {
+            repository.updateBillAmount(bill.id, amount, bill.dueDate, category, frequency, bill.reminderEnabled, bill.reminderLeadDays)
+        }
+    }
+
+
+    fun reopenBill(id: String) {
+        viewModelScope.launch { repository.reopenBill(id) }
+    }
+
+
+    fun deleteBill(id: String) {
+        viewModelScope.launch { repository.deleteBill(id) }
+    }
+
+
+    fun addDebt(person: String, amount: Double, dueDate: Long, description: String, direction: String = "THEY_OWE") {
+        viewModelScope.launch {
+            repository.insertDebt(
+                Debt(person = person, amount = amount, dateBorrowed = System.currentTimeMillis(), direction = direction, dueDate = dueDate, description = description)
+            )
+        }
+    }
+
+
+    fun markDebtPaid(id: String) {
+        viewModelScope.launch { repository.markDebtPaid(id) }
+    }
+
+
+    // Partial settlement: log what moved, shrink what remains. Full payment
+    // flows through the same path (remainder hits zero → marked paid).
+    fun settleDebtPartial(debt: Debt, paid: Double, method: PaymentMethod) {
+        val p = paid.coerceIn(0.0, debt.amount)
+        if (p <= 0) return
+        val full = p >= debt.amount
+        viewModelScope.launch {
+            if (debt.direction == "I_OWE") {
+                addManualTransaction(p, TransactionType.EXPENSE, "Debt", (if (full) "Repaid " else "Repaid part to ") + debt.person, method)
+            } else {
+                addManualTransaction(p, TransactionType.INCOME, "Debt", (if (full) "Collected from " else "Collected part from ") + debt.person, method)
+            }
+            if (full) {
+                markDebtPaid(debt.id)
+            } else {
+                repository.updateDebtAmount(debt.id, debt.amount - p, debt.dueDate, debt.description, debt.status, debt.reminderEnabled, debt.reminderLeadDays)
+            }
+        }
+    }
+
+
+    fun deleteDebt(id: String) {
+        viewModelScope.launch { repository.deleteDebt(id) }
+    }
+
+
+    fun deleteTransaction(id: String) {
+        viewModelScope.launch { repository.deleteTransaction(id) }
+    }
+
+
+    fun hasUndo(): Boolean = undoStack.isNotEmpty()
+
+
+    fun deleteAllTransactions() {
+        viewModelScope.launch { repository.deleteAllTransactions() }
+    }
+
+
+    private var lastImportBatch: String? = null
+
+
+    fun importTransactions(transactions: List<Transaction>, onDone: (added: Int, skipped: Int) -> Unit = { _, _ -> }) {
+        viewModelScope.launch {
+            val batch = "csv-${System.currentTimeMillis()}"
+            var added = 0
+            var skipped = 0
+            transactions.forEach {
+                val norm = LedgerGateway.normalizeMerchant(it.merchant, it.category)
+                // Re-import guard: the same file twice must not double-book.
+                // Fuzzy match covers ledger + pending queue alike.
+                if (repository.hasFuzzyDuplicate(it.amount, norm, it.dateTimestamp)) skipped++
+                else {
+                    repository.insertTransaction(it.copy(merchant = norm, batchId = it.batchId ?: batch))
+                    added++
+                }
+            }
+            if (added > 0) lastImportBatch = batch
+            onDone(added, skipped)
+        }
+    }
+
+
+    /** Removes the most recent CSV import. Reports how many rows went away. */
+    fun undoLastImport(onDone: (Int) -> Unit) {
+        val batch = lastImportBatch ?: return
+        viewModelScope.launch {
+            val n = repository.deleteBatch(batch)
+            lastImportBatch = null
+            onDone(n)
+        }
+    }
+
+
+    private var lastAutoDeduped: List<Transaction> = emptyList()
+
+
+    /**
+     * Deletes exact-duplicate ledger rows (all but the earliest per group).
+     * Groups come from [exactDuplicateGroups]; the removed rows are kept for
+     * one-tap [undoAutoDedupe]. Reports how many rows went away.
+     */
+    fun autoRemoveExactDuplicates(groups: List<List<Transaction>>, onDone: (Int) -> Unit) {
+        viewModelScope.launch {
+            val removed = groups.flatMap { it.drop(1) }
+            removed.forEach { repository.deleteTransaction(it.id) }
+            lastAutoDeduped = removed
+            onDone(removed.size)
+        }
+    }
+
+
+    /** Restores rows removed by [autoRemoveExactDuplicates]. Reports how many came back. */
+    fun undoAutoDedupe(onDone: (Int) -> Unit) {
+        viewModelScope.launch {
+            lastAutoDeduped.forEach { repository.insertTransaction(it) }
+            val n = lastAutoDeduped.size
+            lastAutoDeduped = emptyList()
+            onDone(n)
+        }
+    }
+
+
+    suspend fun sampleCount(): Int = repository.countSamples()
+
+
+    /** One-tap demo cleanup for Settings. Reports how many rows were removed. */
+    fun purgeSamples(onDone: (Int) -> Unit) {
+        viewModelScope.launch {
+            val n = repository.purgeSamples()
+            // Demo budgets/goal carry fixed seed IDs (see seedSampleData), so
+            // purge removes exactly those rows — never user data.
+            repository.deleteBudget("sample-budget-all")
+            repository.deleteBudget("sample-budget-food")
+            repository.deleteSavingsGoal("sample-goal-laptop")
+            onDone(n)
+        }
+    }
+
+
+    fun restoreBackup(json: String, onDone: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            // v2 first: typed payload, wipe-then-restore inside one transaction
+            // (decode before wipe — a corrupt file must never cost data).
+            try {
+                val payload = com.pesaflow.app.data.backup.BackupJson
+                    .decodeFromString<com.pesaflow.app.data.backup.BackupPayload>(json)
+                if (payload.version == 2) {
+                    repository.transact {
+                        repository.wipeForRestore()
+                        repository.insertTransactions(payload.transactions)
+                        repository.insertPendingTransactions(payload.pending)
+                        payload.budgets.forEach { repository.insertBudget(it) }
+                        payload.goals.forEach { repository.insertSavingsGoal(it) }
+                        payload.profile?.let { repository.saveUniversityProfile(it) }
+                        payload.bills.forEach { repository.insertBill(it) }
+                        payload.debts.forEach { repository.insertDebt(it) }
+                        payload.meals.forEach { repository.insertMealItem(it) }
+                        payload.chamas.forEach { repository.insertChamaGroup(it) }
+                        payload.belongings.forEach { repository.insertBelonging(it) }
+                        payload.kitchenStock.forEach { repository.insertKitchenStock(it) }
+                    }
+                    onDone(true)
+                    return@launch
+                }
+            } catch (e: Exception) {
+                // Not v2 — fall through to the legacy v1 reader below.
+            }
+            try {
+                val root = org.json.JSONObject(json)
+                if (root.optInt("version", 0) != 1) {
+                    onDone(false)
+                    return@launch
+                }
+                fun arr(key: String) = root.optJSONArray(key) ?: org.json.JSONArray()
+                val txs = mutableListOf<Transaction>()
+                val ta = arr("transactions")
+                for (i in 0 until ta.length()) {
+                    val o = ta.getJSONObject(i)
+                    txs.add(
+                        Transaction(
+                            id = o.optString("id", java.util.UUID.randomUUID().toString()),
+                            amount = o.optDouble("amount", 0.0),
+                            type = try { TransactionType.valueOf(o.optString("type", "EXPENSE")) } catch (e: Exception) { TransactionType.EXPENSE },
+                            category = o.optString("category", "Other"),
+                            dateTimestamp = o.optLong("dateTimestamp", System.currentTimeMillis()),
+                            merchant = o.optString("merchant", ""),
+                            description = o.optString("description", ""),
+                            paymentMethod = try { PaymentMethod.valueOf(o.optString("paymentMethod", "OTHER")) } catch (e: Exception) { PaymentMethod.OTHER },
+                            source = try { TransactionSource.valueOf(o.optString("source", "MANUAL")) } catch (e: Exception) { TransactionSource.MANUAL },
+                            sourceTransactionId = o.optString("sourceTransactionId").ifBlank { null }
+                        )
+                    )
+                }
+                repository.insertTransactions(txs)
+                val ba = arr("budgets")
+                for (i in 0 until ba.length()) {
+                    val o = ba.getJSONObject(i)
+                    repository.insertBudget(
+                        Budget(
+                            id = o.optString("id", java.util.UUID.randomUUID().toString()),
+                            category = o.optString("category", "Other"),
+                            limitAmount = o.optDouble("limitAmount", 0.0),
+                            type = try { BudgetType.valueOf(o.optString("type", "MONTHLY")) } catch (e: Exception) { BudgetType.MONTHLY },
+                            startTimestamp = o.optLong("startTimestamp", 0L),
+                            endTimestamp = o.optLong("endTimestamp", 0L),
+                            sharedWith = o.optString("sharedWith", "")
+                        )
+                    )
+                }
+                val ga = arr("goals")
+                for (i in 0 until ga.length()) {
+                    val o = ga.getJSONObject(i)
+                    repository.insertSavingsGoal(
+                        SavingsGoal(
+                            id = o.optString("id", java.util.UUID.randomUUID().toString()),
+                            title = o.optString("title", "Goal"),
+                            targetAmount = o.optDouble("targetAmount", 0.0),
+                            currentAmount = o.optDouble("currentAmount", 0.0),
+                            targetTimestamp = o.optLong("targetTimestamp", 0L)
+                        )
+                    )
+                }
+                val pa = arr("profile")
+                if (pa.length() > 0) {
+                    val o = pa.getJSONObject(0)
+                    repository.saveUniversityProfile(
+                        UniversityProfile(
+                            universityName = o.optString("universityName", ""),
+                            campus = o.optString("campus", ""),
+                            currentSemester = o.optInt("currentSemester", 1),
+                            academicYear = o.optString("academicYear", ""),
+                            semesterStartTimestamp = o.optLong("semesterStartTimestamp", 0L),
+                            semesterEndTimestamp = o.optLong("semesterEndTimestamp", 0L),
+                            startingFunding = o.optDouble("startingFunding", 0.0),
+                            helbExpected = o.optDouble("helbExpected", 0.0),
+                            fundingSource = o.optString("fundingSource", "HELB"),
+                            feesAmount = o.optDouble("feesAmount", 0.0),
+                            feesDueDate = o.optLong("feesDueDate", 0L)
+                        )
+                    )
+                }
+                val la = arr("bills")
+                for (i in 0 until la.length()) {
+                    val o = la.getJSONObject(i)
+                    repository.insertBill(
+                        Bill(
+                            id = o.optString("id", java.util.UUID.randomUUID().toString()),
+                            name = o.optString("name", "Bill"),
+                            amount = o.optDouble("amount", 0.0),
+                            dueDate = o.optLong("dueDate", 0L),
+                            category = o.optString("category", "Other"),
+                            frequency = o.optString("frequency", "ONE_TIME"),
+                            status = o.optString("status", "UNPAID")
+                        )
+                    )
+                }
+                val da = arr("debts")
+                for (i in 0 until da.length()) {
+                    val o = da.getJSONObject(i)
+                    repository.insertDebt(
+                        Debt(
+                            id = o.optString("id", java.util.UUID.randomUUID().toString()),
+                            person = o.optString("person", ""),
+                            amount = o.optDouble("amount", 0.0),
+                            dateBorrowed = o.optLong("dateBorrowed", 0L),
+                            dueDate = o.optLong("dueDate", 0L),
+                            description = o.optString("description", ""),
+                            status = o.optString("status", "OWING")
+                        )
+                    )
+                }
+                val ma = arr("meals")
+                for (i in 0 until ma.length()) {
+                    val o = ma.getJSONObject(i)
+                    repository.insertMealItem(
+                        MealItem(
+                            id = o.optString("id", java.util.UUID.randomUUID().toString()),
+                            name = o.optString("name", ""),
+                            mealType = o.optString("mealType", "Lunch"),
+                            price = o.optDouble("price", 0.0),
+                            component = o.optString("component", "Complete"),
+                            source = o.optString("source", "Buy")
+                        )
+                    )
+                }
+                val ca = arr("chamas")
+                for (i in 0 until ca.length()) {
+                    val o = ca.getJSONObject(i)
+                    repository.insertChamaGroup(
+                        ChamaGroup(
+                            id = o.optString("id", java.util.UUID.randomUUID().toString()),
+                            name = o.optString("name", ""),
+                            contribution = o.optDouble("contribution", 0.0),
+                            members = o.optString("members", ""),
+                            cycleDays = o.optInt("cycleDays", 30),
+                            startTimestamp = o.optLong("startTimestamp", System.currentTimeMillis()),
+                            paidCycles = o.optInt("paidCycles", 0)
+                        )
+                    )
+                }
+                onDone(true)
+            } catch (e: Exception) {
+                onDone(false)
+            }
+        }
+    }
+
+
+    fun addMealItem(name: String, mealType: String, price: Double, component: String = "Complete", source: String = "Buy") {
+        viewModelScope.launch { repository.insertMealItem(MealItem(name = name, mealType = mealType, price = price, component = component, source = source)) }
+    }
+
+
+    fun deleteMealItem(id: String) {
+        viewModelScope.launch { repository.deleteMealItem(id) }
+    }
+
+
+    fun addBelonging(name: String, category: String, estCost: Double, priority: Int, status: String = "NEED", notes: String = "") {
+        viewModelScope.launch {
+            repository.insertBelonging(
+                Belonging(name = name.trim(), category = category, status = status, estCost = estCost, priority = priority, notes = notes.trim())
+            )
+        }
+    }
+
+
+    fun markBelonging(item: Belonging, status: String) {
+        viewModelScope.launch { repository.updateBelonging(item.copy(status = status)) }
+    }
+
+
+    fun deleteBelonging(id: String) {
+        viewModelScope.launch { repository.deleteBelonging(id) }
+    }
+
+
+    fun addKitchenStock(name: String, unit: String, qtyFull: Double, qtyLeft: Double, dailyUse: Double, pricePerPack: Double, expiryTimestamp: Long = 0L, eatByDays: Int = 0) {
+        viewModelScope.launch {
+            repository.insertKitchenStock(
+                KitchenStock(name = name.trim(), unit = unit.trim().ifEmpty { "kg" }, qtyFull = qtyFull, qtyLeft = qtyLeft, dailyUse = dailyUse, pricePerPack = pricePerPack, expiryTimestamp = expiryTimestamp, eatByDays = eatByDays)
+            )
+        }
+    }
+
+
+    fun logStockUse(item: KitchenStock, days: Double = 1.0) {
+        viewModelScope.launch {
+            repository.updateKitchenStock(
+                item.copy(qtyLeft = (item.qtyLeft - item.dailyUse * days).coerceAtLeast(0.0), updatedAt = System.currentTimeMillis())
+            )
+        }
+    }
+
+
+    fun setStockPriority(item: KitchenStock, days: Int) {
+        viewModelScope.launch {
+            repository.updateKitchenStock(item.copy(eatByDays = days, updatedAt = System.currentTimeMillis()))
+        }
+    }
+
+
+    fun setStockExpiry(item: KitchenStock, timestamp: Long) {
+        viewModelScope.launch {
+            repository.updateKitchenStock(item.copy(expiryTimestamp = timestamp, updatedAt = System.currentTimeMillis()))
+        }
+    }
+
+
+    fun restockKitchen(item: KitchenStock) {
+        viewModelScope.launch {
+            repository.updateKitchenStock(item.copy(qtyLeft = item.qtyFull, updatedAt = System.currentTimeMillis()))
+        }
+    }
+
+
+    fun deleteKitchenStock(id: String) {
+        viewModelScope.launch { repository.deleteKitchenStock(id) }
+    }
+
+
+    fun clearMealItems() {
+        viewModelScope.launch { repository.clearMealItems() }
+    }
+
+
+    val chamaGroups: StateFlow<List<ChamaGroup>> = repository.allChamaGroups.stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
+    )
+
+
+    fun addChamaGroup(name: String, contribution: Double, members: String, cycleDays: Int) {
+        viewModelScope.launch {
+            repository.insertChamaGroup(
+                ChamaGroup(name = name, contribution = contribution, members = members, cycleDays = cycleDays)
+            )
+        }
+    }
+
+
+    fun deleteChamaGroup(id: String) {
+        viewModelScope.launch { repository.deleteChamaGroup(id) }
+    }
+
+
+    fun advanceChama(group: ChamaGroup) {
+        viewModelScope.launch { repository.advanceChama(group.id, group.paidCycles + 1) }
+    }
+
+
+    // Sample data is one-shot and clearly fake: guarded by a prefs flag AND a
+    // non-empty ledger check, so double-taps and re-entry can never pollute
+    // real records or stack duplicate budgets.
+    fun seedSampleData() {
+        viewModelScope.launch {
+            val p = prefs()
+            if (p.getBoolean("sample_seeded", false)) return@launch
+            if (repository.allTransactions.first().isNotEmpty() || repository.budgets.first().isNotEmpty()) {
+                p.edit().putBoolean("sample_seeded", true).apply()
+                return@launch
+            }
+            val now = System.currentTimeMillis()
+            val day = 24L * 60 * 60 * 1000
+            listOf(
+                Transaction(amount = 20000.0, type = TransactionType.INCOME, category = "Salary", dateTimestamp = now - 2 * day, merchant = "HELB", description = "Sample semester upkeep", paymentMethod = PaymentMethod.MPESA, source = TransactionSource.MANUAL, isSample = true),
+                Transaction(amount = 250.0, type = TransactionType.EXPENSE, category = "Food", dateTimestamp = now - 2 * day, merchant = "Kibanda", description = "Sample lunch", paymentMethod = PaymentMethod.CASH, source = TransactionSource.MANUAL, isSample = true),
+                Transaction(amount = 100.0, type = TransactionType.EXPENSE, category = "Transport", dateTimestamp = now - 1 * day, merchant = "Matatu Stage", description = "Sample fare", paymentMethod = PaymentMethod.CASH, source = TransactionSource.MANUAL, isSample = true),
+                Transaction(amount = 150.0, type = TransactionType.EXPENSE, category = "Airtime", dateTimestamp = now - 1 * day, merchant = "Safaricom", description = "Sample bundles", paymentMethod = PaymentMethod.MPESA, source = TransactionSource.MANUAL, isSample = true),
+                Transaction(amount = 8000.0, type = TransactionType.EXPENSE, category = "Rent", dateTimestamp = now - 5 * day, merchant = "Hostel Caretaker", description = "Sample rent", paymentMethod = PaymentMethod.MPESA, source = TransactionSource.MANUAL, isSample = true)
+            ).forEach { repository.insertTransaction(it) }
+            repository.insertBudget(Budget(id = "sample-budget-all", category = "ALL", limitAmount = 25000.0, type = BudgetType.MONTHLY, startTimestamp = now, endTimestamp = now + 30 * day))
+            repository.insertBudget(Budget(id = "sample-budget-food", category = "Food", limitAmount = 6000.0, type = BudgetType.MONTHLY, startTimestamp = now, endTimestamp = now + 30 * day))
+            repository.insertSavingsGoal(SavingsGoal(id = "sample-goal-laptop", title = "Laptop", targetAmount = 80000.0, currentAmount = 5000.0, targetTimestamp = now + 180 * day))
+            p.edit().putBoolean("sample_seeded", true).apply()
+        }
+    }
+
+
+    fun setLanguage(lang: AppLanguage) {
+        currentLanguage.value = lang
+        prefs().edit().putString("app_language", lang.name).apply()
+    }
+
+
+    fun setUserName(name: String) {
+        userName.value = name.trim()
+        prefs().edit().putString("user_name", userName.value).apply()
+    }
+
+
+    fun setNickname(name: String) {
+        nickname.value = name.trim()
+        prefs().edit().putString("user_nickname", nickname.value).apply()
+    }
+
+
+    // Daily voice uses the nickname; extreme warnings use the full name to sound serious.
+    fun displayName(): String = nickname.value.ifBlank { userName.value }
+
+    fun seriousName(): String = userName.value.ifBlank { nickname.value }
+
+
+    // Onboarding "tell us about you" answers, kept as JSON for future
+    // personalization (spending baselines, first-run advice).
+    fun saveOnboardingAnswers(json: String) {
+        prefs().edit().putString("onboarding_answers", json).apply()
+    }
+
+
+    fun getOnboardingAnswers(): String =
+        prefs().getString("onboarding_answers", "").orEmpty()
+
+
+    fun setThemeMode(mode: AppTheme) {
+        themeMode.value = mode
+        prefs().edit().putString("app_theme", mode.name).apply()
+    }
+
+
+    fun setHideBalances(hidden: Boolean) {
+        hideBalances.value = hidden
+        prefs().edit().putBoolean("hide_balances", hidden).apply()
+    }
+
+
+    fun toggleSection(key: String) {
+        val updated = hiddenSections.value.toMutableSet()
+        if (!updated.add(key)) updated.remove(key)
+        hiddenSections.value = updated
+        prefs().edit().putString("hidden_sections", updated.joinToString(",")).apply()
+    }
+
+
+    // Localized strings — single source is AppCopy (dashboard section); this
+    // function stays as the compatibility delegate so every caller upgrades at once.
+    fun getLocalizedString(key: String, arg: String = "", balance: Double = availableBalance.value): String {
+        val lang = currentLanguage.value
+        if (key == "dashboard_status") {
+            return com.pesaflow.app.ui.language.dashStatus(displayName(), seriousName(), balance, lang)
+        }
+        return com.pesaflow.app.ui.language.dashKey(key, arg, lang)
+    }
+
+
+    private fun isCurrentMonth(timestamp: Long): Boolean {
+        val cal = java.util.Calendar.getInstance()
+        val txCal = java.util.Calendar.getInstance().apply { timeInMillis = timestamp }
+        return cal.get(java.util.Calendar.YEAR) == txCal.get(java.util.Calendar.YEAR) &&
+            cal.get(java.util.Calendar.MONTH) == txCal.get(java.util.Calendar.MONTH)
+    }
+}
+
+
+/**
+ * Exact-duplicate groups for auto-remove: same amount + merchant + type +
+ * method on the same day, timestamps within 10 minutes. First element of
+ * each group is the keeper (earliest); the rest are safe to delete.
+ * Conservative on purpose — two matatu rides hours apart never group.
+ */
+fun exactDuplicateGroups(txs: List<Transaction>): List<List<Transaction>> {
+    val dayMs = 24L * 60 * 60 * 1000
+    return txs.filter { !it.isSample }
+        .groupBy {
+            "${it.amount}|${it.merchant.trim().lowercase()}|${it.type}|${it.paymentMethod}|${it.dateTimestamp / dayMs}"
+        }
+        .values.filter { it.size > 1 }
+        .mapNotNull { g ->
+            val ordered = g.sortedBy { it.dateTimestamp }
+            val keep = ordered.first()
+            val dupes = ordered.drop(1).filter { it.dateTimestamp - keep.dateTimestamp <= 10 * 60 * 1000 }
+            if (dupes.isEmpty()) null else listOf(keep) + dupes
+        }
+}
