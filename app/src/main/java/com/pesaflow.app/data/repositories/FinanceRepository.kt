@@ -32,6 +32,24 @@ class FinanceRepository(private val database: AppDatabase) {
     suspend fun deleteRhythm(id: String) = database.userRhythmDao().delete(id)
 
 
+    // Phase 3 accounts: balances live here once postings arrive (Phase 4);
+    // today they back future payroll-style opening seeds and audits.
+    val moneyAccounts: Flow<List<MoneyAccount>> = database.moneyAccountDao().getAll()
+
+    suspend fun upsertMoneyAccount(account: MoneyAccount) = database.moneyAccountDao().upsert(account)
+
+    suspend fun deleteMoneyAccount(id: String) = database.moneyAccountDao().delete(id)
+
+    // Atomic transfer pairing: both legs share one group id or neither does.
+    suspend fun linkTransfer(groupId: String, vararg ids: String) = transact {
+        ids.forEach { database.transactionDao().updateTransferGroup(it, groupId) }
+    }
+
+    suspend fun unlinkTransfer(vararg ids: String) = transact {
+        ids.forEach { database.transactionDao().updateTransferGroup(it, null) }
+    }
+
+
     suspend fun insertMealItem(item: MealItem) = database.mealDao().insertMealItem(item)
 
 
@@ -141,6 +159,7 @@ class FinanceRepository(private val database: AppDatabase) {
         database.belongingDao().deleteAllBelongings()
         database.kitchenStockDao().deleteAllStock()
         database.userRhythmDao().deleteAll()
+        database.moneyAccountDao().deleteAll()
         database.universityProfileDao().deleteUniversityProfile()
     }
 
@@ -219,7 +238,10 @@ class FinanceRepository(private val database: AppDatabase) {
             paymentMethod = pending.paymentMethod,
             source = pending.source,
             sourceTransactionId = pending.sourceTransactionId,
-            confirmed = true
+            confirmed = true,
+            accountKind = com.pesaflow.app.data.finance.accountKindFor(
+                pending.paymentMethod, pending.merchant, finalType
+            ).name
         )
         insertTransaction(transaction)
         deletePendingTransaction(pending.id)

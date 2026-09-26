@@ -264,4 +264,59 @@ class FinancialEngineTest {
         val s = buildSnapshot(base(txs = listOf(tx(100.0, TransactionType.EXPENSE, "Food"))))
         assertEquals(DataQuality.SPARSE, s.quality)
     }
+
+    // §5/§7 — stored account wins; opening equity is held cash, never salary.
+    @Test
+    fun `stored account kind wins over derivation`() {
+        val s = buildSnapshot(
+            base(txs = listOf(tx(5000.0, TransactionType.INCOME, "Salary", "Employer", PaymentMethod.CASH)))
+        )
+        assertTrue(s.accounts.getValue(Account.CASH) > Money.ZERO)
+        val stamped = buildSnapshot(
+            base(txs = listOf(
+                Transaction(
+                    amount = 5000.0, type = TransactionType.INCOME, category = "Salary",
+                    dateTimestamp = System.currentTimeMillis(), merchant = "Employer",
+                    description = "", paymentMethod = PaymentMethod.CASH,
+                    source = TransactionSource.MANUAL, accountKind = "BANK"
+                )
+            ))
+        )
+        assertEquals(Money.ZERO, stamped.accounts.getValue(Account.CASH))
+        assertTrue(stamped.accounts.getValue(Account.BANK) > Money.ZERO)
+        assertEquals(s.liquid, stamped.liquid)
+    }
+
+    @Test
+    fun `opening equity is held but never earned income`() {
+        val s = buildSnapshot(
+            base(txs = listOf(
+                Transaction(
+                    amount = 10000.0, type = TransactionType.INCOME, category = "Income",
+                    dateTimestamp = System.currentTimeMillis(), merchant = "Opening balance",
+                    description = "", paymentMethod = PaymentMethod.CASH,
+                    source = TransactionSource.MANUAL, accountKind = "CASH", isOpening = true
+                )
+            ))
+        )
+        assertEquals(Money.ZERO, s.monthlyEarnedIncome)
+        assertEquals(Money.of(10000.0), s.liquid)
+        assertEquals(Money.of(10000.0), s.flexible)
+    }
+
+    // §5 — corrupt stored kinds fall back to derivation, never crash math.
+    @Test
+    fun `corrupt account kind falls back safely`() {
+        val s = buildSnapshot(
+            base(txs = listOf(
+                Transaction(
+                    amount = 2000.0, type = TransactionType.EXPENSE, category = "Food",
+                    dateTimestamp = System.currentTimeMillis(), merchant = "Kibanda",
+                    description = "", paymentMethod = PaymentMethod.MPESA,
+                    source = TransactionSource.MANUAL, accountKind = "NOPE"
+                )
+            ))
+        )
+        assertTrue(s.accounts.getValue(Account.M_PESA) < Money.ZERO)
+    }
 }

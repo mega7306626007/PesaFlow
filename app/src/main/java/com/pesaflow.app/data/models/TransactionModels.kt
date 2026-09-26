@@ -53,7 +53,21 @@ data class Transaction(
     val latitude: Double? = null,
     val longitude: Double? = null,
     val isSample: Boolean = false, // demo/seed rows — excluded from sums, one-tap purgeable
-    val batchId: String? = null // CSV/scan import batch — undo a whole import at once
+    val batchId: String? = null, // CSV/scan import batch — undo a whole import at once
+    val accountKind: String = "", // Account.name where it lives; "" = derive (legacy rows)
+    val transferGroupId: String? = null, // paired internal moves share one id
+    val isOpening: Boolean = false // opening equity, never monthly earned income
+)
+
+
+@Serializable
+@Entity(tableName = "money_accounts")
+data class MoneyAccount(
+    @PrimaryKey val id: String = UUID.randomUUID().toString(),
+    val kind: String, // Account.name: M_PESA, CASH, BANK, SAVINGS, ZIIDI, OTHER
+    val label: String = "",
+    val openingMinorUnits: Long = 0L, // opening equity in minor units
+    val createdAt: Long = System.currentTimeMillis()
 )
 
 

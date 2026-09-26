@@ -13,17 +13,30 @@ import java.util.Calendar
 private const val DAY_MS = 24L * 60 * 60 * 1000
 private val ESSENTIAL_CATEGORIES = setOf("Rent", "School", "Health", "Food", "Transport")
 
-fun accountOf(tx: Transaction): Account {
-    if (tx.merchant.contains("ziidi", ignoreCase = true) &&
-        (tx.type == TransactionType.SAVING || tx.type == TransactionType.INCOME)
+fun accountKindFor(method: PaymentMethod, merchant: String, type: TransactionType): Account {
+    if (merchant.contains("ziidi", ignoreCase = true) &&
+        (type == TransactionType.SAVING || type == TransactionType.INCOME)
     ) return Account.ZIIDI
-    return when (tx.paymentMethod) {
+    return when (method) {
         PaymentMethod.MPESA -> Account.M_PESA
         PaymentMethod.CASH -> Account.CASH
         PaymentMethod.BANK_TRANSFER -> Account.BANK
         PaymentMethod.AIRTIME -> Account.M_PESA
         PaymentMethod.OTHER -> Account.OTHER
     }
+}
+
+// Stored accountKind wins (stamped at write time, backfilled by migration
+// 13→14); derivation is the legacy fallback only.
+fun accountOf(tx: Transaction): Account {
+    if (tx.accountKind.isNotBlank()) {
+        try {
+            return Account.valueOf(tx.accountKind)
+        } catch (e: Exception) {
+            // Corrupt value: fall through to derivation, never crash math.
+        }
+    }
+    return accountKindFor(tx.paymentMethod, tx.merchant, tx.type)
 }
 
 fun median(values: List<Double>): Double {
@@ -99,12 +112,12 @@ fun buildSnapshot(input: SnapshotInput): FinancialSnapshot {
     val totalLiabilities = Money.of(debtsOwed.sumOf { it.amount })
     val netWorth = totalAssets - totalLiabilities
 
-    // Monthly EARNED income: real income events in-period. Samples excluded;
-    // transfers excluded. (Opening upkeep rows are genuine ledger INCOME in
-    // this tree — opening-equity separation lands with postings, Phase 4.)
+    // Monthly EARNED income: real income events in-period. Samples excluded,
+    // transfers excluded, opening equity excluded (§7) — cash is still cash
+    // in liquid, it is simply never called salary.
     val monthlyEarnedIncome = Money.of(
         flows.filter {
-            it.type == TransactionType.INCOME && it.dateTimestamp >= monthStart
+            it.type == TransactionType.INCOME && !it.isOpening && it.dateTimestamp >= monthStart
         }.sumOf { it.amount }
     )
 

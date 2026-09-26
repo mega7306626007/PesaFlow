@@ -409,9 +409,9 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     }
 
 
-    // Opening money: pocket cash + monthly upkeep become real ledger INCOME rows
-    // (guarded by merchant tag, so re-onboarding never double-logs). Everything
-    // downstream — balance, net worth, reports, planners — picks them up.
+    // Opening money: pocket cash + monthly upkeep become ledger rows flagged
+    // isOpening (guarded by merchant tag, so re-onboarding never double-logs).
+    // Opening equity: counted in held cash, never in monthly earned income (§7).
     fun seedOpeningMoney(pocket: Double, monthlyUpkeep: Double) {
         viewModelScope.launch {
             val now = System.currentTimeMillis()
@@ -425,7 +425,9 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
                         dateTimestamp = now,
                         merchant = "Opening balance",
                         description = "Pocket cash from onboarding",
-                        paymentMethod = PaymentMethod.CASH
+                        paymentMethod = PaymentMethod.CASH,
+                        accountKind = "CASH",
+                        isOpening = true
                     )
                 )
             }
@@ -438,7 +440,9 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
                         dateTimestamp = now,
                         merchant = "Monthly upkeep",
                         description = "Home/sponsor monthly upkeep, in hand",
-                        paymentMethod = PaymentMethod.CASH
+                        paymentMethod = PaymentMethod.CASH,
+                        accountKind = "CASH",
+                        isOpening = true
                     )
                 )
             }
