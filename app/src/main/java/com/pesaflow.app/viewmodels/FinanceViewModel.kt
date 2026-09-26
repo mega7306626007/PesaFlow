@@ -13,6 +13,7 @@ import com.pesaflow.app.data.finance.IncomeStability
 import com.pesaflow.app.data.finance.ProfileSignals
 import com.pesaflow.app.data.finance.SnapshotInput
 import com.pesaflow.app.data.finance.buildSnapshot
+import com.pesaflow.app.data.finance.toSignals
 import com.pesaflow.app.data.income.IncomeSource
 import com.pesaflow.app.data.ledger.CategoryMemory
 import com.pesaflow.app.data.ledger.LedgerGateway
@@ -83,12 +84,20 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch { repository.deleteIncomeSource(id) }
     }
 
+    val financialProfile: StateFlow<FinancialProfile?> = repository.financialProfile.stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5000), null
+    )
+
+    fun saveFinancialProfile(profile: FinancialProfile) {
+        viewModelScope.launch { repository.saveFinancialProfile(profile) }
+    }
+
     // Canonical snapshot (Phase 2): every screen will read money figures
     // from here instead of re-deriving them (UI rewire lands Phase 11).
     // Pure buildSnapshot over combined flows — the ViewModel orchestrates
     // state, the finance package owns the math.
     val financialSnapshot: StateFlow<FinancialSnapshot> = combine(
-        allTransactions, budgets, bills, debts, savingsGoals, universityProfile, incomeSources
+        allTransactions, budgets, bills, debts, savingsGoals, universityProfile, incomeSources, financialProfile
     ) { args ->
         @Suppress("UNCHECKED_CAST")
         val txs = args[0] as List<Transaction>
@@ -103,12 +112,15 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         val profile = args[5] as UniversityProfile?
         @Suppress("UNCHECKED_CAST")
         val sources = args[6] as List<IncomeSource>
+        val stored = args[7] as FinancialProfile?
         val persona = com.pesaflow.app.ui.budgets.parsePersona(getOnboardingAnswers())
+        // Declared profile wins; persona bridge is the fallback preset.
+        val signals = stored?.toSignals() ?: persona.toSignals(profile, sources, debts)
         buildSnapshot(
             SnapshotInput(
                 txs = txs, budgets = budgets, bills = bills, debts = debts, goals = goals,
                 incomeSources = sources,
-                profile = persona.toSignals(profile, sources, debts),
+                profile = signals,
                 helbExpected = profile?.helbExpected ?: 0.0,
                 feesAmount = profile?.feesAmount ?: 0.0
             )

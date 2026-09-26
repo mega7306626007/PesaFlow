@@ -47,6 +47,13 @@ class FinanceRepository(private val database: AppDatabase) {
 
     suspend fun deleteIncomeSource(id: String) = database.incomeSourceDao().delete(id)
 
+
+    // Phase 7 profile: declared multidimensional truth, singleton row.
+    val financialProfile: Flow<FinancialProfile?> = database.financialProfileDao().getProfile()
+
+    suspend fun saveFinancialProfile(profile: FinancialProfile) =
+        database.financialProfileDao().save(profile)
+
     suspend fun migrateLegacyIncomeSources(context: android.content.Context) {
         val moved = com.pesaflow.app.data.income.IncomeSourceStore.consumeLegacy(context)
         if (moved.isNotEmpty()) {

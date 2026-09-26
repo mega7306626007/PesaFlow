@@ -609,6 +609,40 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                             if (seededIncome.isNotEmpty()) {
                                 viewModel.setIncomeSources(viewModel.incomeSources.value + seededIncome)
                             }
+                            // Declared profile (Phase 7): first-class facts from this
+                            // run. Observation may only suggest changes later.
+                            viewModel.saveFinancialProfile(
+                                com.pesaflow.app.data.models.FinancialProfile(
+                                    housing = when {
+                                        homeKind.contains("parent", ignoreCase = true) -> "PARENTS"
+                                        homeKind.contains("rent", ignoreCase = true) -> "RENTAL"
+                                        homeKind.contains("hostel", ignoreCase = true) -> "HOSTEL"
+                                        else -> "HOSTEL"
+                                    },
+                                    commute = when {
+                                        commuteLen.contains("far", ignoreCase = true) -> "LONG"
+                                        commuteLen.contains("walk", ignoreCase = true) -> "WALK"
+                                        commuteLen.contains("near", ignoreCase = true) || commuteLen.contains("short", ignoreCase = true) -> "SHORT"
+                                        else -> "SHORT"
+                                    },
+                                    food = when (cooksFood) {
+                                        "Yes" -> "COOK"
+                                        "No" -> "BUY"
+                                        else -> "MIXED"
+                                    },
+                                    incomeStability = when {
+                                        fundSource == "SELF" && sponsorMonthly.toDoubleOrNull()?.takeIf { it > 0 } == null -> "NONE"
+                                        sponsorMonthly.toDoubleOrNull()?.takeIf { it > 0 } != null -> "MIXED"
+                                        fundSource == "SELF" -> "VARIABLE"
+                                        else -> "MIXED"
+                                    },
+                                    incomeKindsCsv = buildList {
+                                        if (fundSource != "SELF") add("HELB")
+                                        if (sponsorMonthly.toDoubleOrNull()?.takeIf { it > 0 } != null) add("GUARDIAN")
+                                    }.joinToString(","),
+                                    academic = if ((semester.toIntOrNull() ?: 1) <= 1) "FIRST_YEAR" else "RETURNING"
+                                )
+                            )
                             monthlyBudget.toDoubleOrNull()?.takeIf { it > 0 }?.let {
                                 viewModel.upsertBudget("ALL", it, BudgetType.MONTHLY)
                             }

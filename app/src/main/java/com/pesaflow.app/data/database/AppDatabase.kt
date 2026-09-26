@@ -12,8 +12,8 @@ import com.pesaflow.app.data.models.*
 
 
 @Database(
-    entities = [Transaction::class, PendingTransaction::class, Budget::class, SavingsGoal::class, UniversityProfile::class, Bill::class, Debt::class, MealItem::class, ChamaGroup::class, Belonging::class, KitchenStock::class, UserRhythm::class, MoneyAccount::class, IncomeSource::class],
-    version = 16,
+    entities = [Transaction::class, PendingTransaction::class, Budget::class, SavingsGoal::class, UniversityProfile::class, Bill::class, Debt::class, MealItem::class, ChamaGroup::class, Belonging::class, KitchenStock::class, UserRhythm::class, MoneyAccount::class, IncomeSource::class, FinancialProfile::class],
+    version = 17,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -32,6 +32,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun userRhythmDao(): UserRhythmDao
     abstract fun moneyAccountDao(): MoneyAccountDao
     abstract fun incomeSourceDao(): IncomeSourceDao
+    abstract fun financialProfileDao(): FinancialProfileDao
 
 
     companion object {
@@ -57,8 +58,12 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("CREATE TABLE IF NOT EXISTS user_rhythms (id TEXT NOT NULL PRIMARY KEY, kind TEXT NOT NULL, category TEXT NOT NULL, confidence REAL NOT NULL, hint TEXT NOT NULL, dayOfMonth INTEGER NOT NULL, amount REAL NOT NULL, sourceCode TEXT NOT NULL, confirmed INTEGER NOT NULL, dismissed INTEGER NOT NULL, createdAt INTEGER NOT NULL)")
             }
         }
-        // Phase 6 income: sources move from prefs JSON to Room. Data follows
-        // separately (one-way prefs→DB hop in the repository, then key cleared).
+        // Phase 7 profile: multidimensional declared truth, one singleton row.
+        val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS financial_profile (id TEXT NOT NULL PRIMARY KEY, housing TEXT NOT NULL, commute TEXT NOT NULL, food TEXT NOT NULL, household TEXT NOT NULL, incomeStability TEXT NOT NULL, incomeKindsCsv TEXT NOT NULL, academic TEXT NOT NULL, debtLevel TEXT NOT NULL, savingsPressure TEXT NOT NULL, risk TEXT NOT NULL, roommates INTEGER NOT NULL, rentShare REAL NOT NULL, utilityShare REAL NOT NULL, commuteDays INTEGER NOT NULL, cookingDays INTEGER NOT NULL, dependants INTEGER NOT NULL, updatedAt INTEGER NOT NULL)")
+            }
+        }
         val MIGRATION_15_16 = object : Migration(15, 16) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("CREATE TABLE IF NOT EXISTS income_sources (id TEXT NOT NULL PRIMARY KEY, kind TEXT NOT NULL, label TEXT NOT NULL, bank TEXT NOT NULL, expectedAmount REAL NOT NULL, frequency TEXT NOT NULL, dayOfMonth INTEGER NOT NULL, autoTrack INTEGER NOT NULL, useInBudget INTEGER NOT NULL)")
@@ -93,7 +98,7 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "pesaflow_secure_db"
-                ).addMigrations(MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16).fallbackToDestructiveMigration().build()
+                ).addMigrations(MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17).fallbackToDestructiveMigration().build()
                 INSTANCE = instance
                 instance
             }

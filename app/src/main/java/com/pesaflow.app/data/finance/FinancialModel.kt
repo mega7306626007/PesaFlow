@@ -4,6 +4,7 @@ import com.pesaflow.app.data.income.IncomeSource
 import com.pesaflow.app.data.models.Bill
 import com.pesaflow.app.data.models.Budget
 import com.pesaflow.app.data.models.Debt
+import com.pesaflow.app.data.models.FinancialProfile
 import com.pesaflow.app.data.models.SavingsGoal
 import com.pesaflow.app.data.models.Transaction
 
@@ -130,3 +131,25 @@ data class SnapshotInput(
     val feesAmount: Double = 0.0,
     val nowMs: Long = System.currentTimeMillis()
 )
+
+// Stored declaration → working signals. Corrupt values fall back, never crash.
+fun FinancialProfile.toSignals(): ProfileSignals {
+    fun housing(): Housing = Housing.values().firstOrNull { it.name == housing } ?: Housing.HOSTEL
+    fun commute(): Commute = Commute.values().firstOrNull { it.name == commute } ?: Commute.SHORT
+    fun food(): FoodStyle = FoodStyle.values().firstOrNull { it.name == food } ?: FoodStyle.MIXED
+    fun stability(): IncomeStability =
+        IncomeStability.values().firstOrNull { it.name == incomeStability } ?: IncomeStability.MIXED
+    fun debt(): DebtLevel = DebtLevel.values().firstOrNull { it.name == debtLevel } ?: DebtLevel.NONE
+    fun riskPref(): RiskPreference =
+        RiskPreference.values().firstOrNull { it.name == risk } ?: RiskPreference.STANDARD
+    return ProfileSignals(
+        housing = housing(),
+        commute = commute(),
+        food = food(),
+        incomeStability = stability(),
+        incomeKinds = incomeKindsCsv.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet(),
+        debtLevel = debt(),
+        risk = riskPref(),
+        roommates = roommates
+    )
+}
