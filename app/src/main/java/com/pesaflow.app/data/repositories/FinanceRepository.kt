@@ -316,7 +316,81 @@ class FinanceRepository(private val database: AppDatabase) {
     suspend fun markBillPaid(id: String) = database.billDao().markBillPaid(id)
 
 
-    suspend fun reopenBill(id: String) = database.billDao().reopenBill(id)
+    // Phase 5 bill accounting: a bill becomes an expense only through a real
+    // payment row, created and linked atomically. Re-marking never double-pays:
+    // an existing link returns the same row. Reopen voids only auto-created
+    // payments (batchId "billpay:<id>") — user money is never touched.
+    suspend fun payBill(
+        id: String,
+        method: PaymentMethod = PaymentMethod.MPESA,
+        dateTimestamp: Long = System.currentTimeMillis()
+    ): Transaction? = transact {
+        val bill = database.billDao().getById(id) ?: return@transact null
+        if (bill.status == "PAID") {
+            return@transact bill.linkedPaymentId?.let { database.transactionDao().getById(it) }
+        }
+        bill.linkedPaymentId?.let { database.transactionDao().getById(it) }?.let { return@transact it }
+        val due = bill.amountRemaining.takeIf { it > 0 } ?: bill.amount
+        val pay = Transaction(
+            amount = due,
+            type = TransactionType.EXPENSE,
+            category = bill.category,
+            dateTimestamp = dateTimestamp,
+            merchant = bill.name,
+            description = "Bill payment: ${bill.name}",
+            paymentMethod = method,
+            source = TransactionSource.MANUAL,
+            confirmed = true,
+            accountKind = com.pesaflow.app.data.finance.accountKindFor(method, bill.name, TransactionType.EXPENSE).name,
+            batchId = "billpay:$id"
+        )
+        database.transactionDao().insertTransaction(pay)
+        database.billDao().markBillPaidWith(id, pay.id, 0.0)
+        pay
+    }
+
+    suspend fun reopenBill(id: String) = transact {
+        val bill = database.billDao().getById(id) ?: return@transact
+        bill.linkedPaymentId?.let { pid ->
+            val pay = database.transactionDao().getById(pid)
+            if (pay != null && pay.batchId == "billpay:$id") database.transactionDao().deleteTransaction(pid)
+        }
+        database.billDao().reopenBillWith(id, bill.amount)
+    }
+
+    // Phase 4 transfers: one call books both legs atomically under a shared
+    // group id — OUT leaves the source account, IN arrives in the destination.
+    // Wealth-neutral by construction; the engine proves it per snapshot.
+    suspend fun recordTransfer(
+        amount: Double,
+        fromKind: String,
+        toKind: String,
+        merchant: String,
+        dateTimestamp: Long = System.currentTimeMillis(),
+        method: PaymentMethod = PaymentMethod.MPESA,
+        category: String = "Transfer"
+    ): String = transact {
+        val group = java.util.UUID.randomUUID().toString()
+        database.transactionDao().insertTransaction(
+            Transaction(
+                amount = amount, type = TransactionType.TRANSFER, category = category,
+                dateTimestamp = dateTimestamp, merchant = "Transfer to $merchant",
+                description = "Internal move $fromKind → $toKind",
+                paymentMethod = method, source = TransactionSource.MANUAL, confirmed = true,
+                accountKind = fromKind, transferGroupId = group, transferSide = "OUT"
+            )
+        )
+        database.transactionDao().insertTransaction(
+            Transaction(
+                amount = amount, type = TransactionType.TRANSFER, category = category,
+                dateTimestamp = dateTimestamp, merchant = "Transfer from $merchant",
+                description = "Internal move $fromKind → $toKind",
+                paymentMethod = method, source = TransactionSource.MANUAL, confirmed = true,
+                accountKind = toKind, transferGroupId = group, transferSide = "IN"
+            )
+        )
+        group
+    }
 
 
     fun getBillsInTimeframe(start: Long, end: Long): Flow<List<Bill>> =

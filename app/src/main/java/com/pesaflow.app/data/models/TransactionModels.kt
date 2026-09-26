@@ -56,6 +56,7 @@ data class Transaction(
     val batchId: String? = null, // CSV/scan import batch — undo a whole import at once
     val accountKind: String = "", // Account.name where it lives; "" = derive (legacy rows)
     val transferGroupId: String? = null, // paired internal moves share one id
+    val transferSide: String = "", // OUT = leaves this account, IN = arrives; "" = unpaired legacy
     val isOpening: Boolean = false // opening equity, never monthly earned income
 )
 
@@ -157,7 +158,9 @@ data class Bill(
     val frequency: String = "ONE_TIME", // ONE_TIME, MONTHLY, WEEKLY, CUSTOM
     val status: String = "UNPAID", // UNPAID, PAID
     val reminderEnabled: Boolean = false,
-    val reminderLeadDays: Int = 3
+    val reminderLeadDays: Int = 3,
+    val linkedPaymentId: String? = null, // ledger row that actually paid it; null = unpaid
+    val amountRemaining: Double = 0.0 // >0 = remainder owed; 0 = full amount (legacy/unsplit)
 )
 
 

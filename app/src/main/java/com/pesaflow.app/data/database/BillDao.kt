@@ -60,10 +60,22 @@ interface BillDao {
     )
 
 
+    @Query("SELECT * FROM bills WHERE id = :id")
+    suspend fun getById(id: String): Bill?
+
+
     @Query("UPDATE bills SET status = 'PAID' WHERE id = :id")
     suspend fun markBillPaid(id: String)
 
 
+    @Query("UPDATE bills SET status = 'PAID', linkedPaymentId = :paymentId, amountRemaining = :remaining WHERE id = :id")
+    suspend fun markBillPaidWith(id: String, paymentId: String, remaining: Double)
+
+
     @Query("UPDATE bills SET status = 'UNPAID' WHERE id = :id")
     suspend fun reopenBill(id: String)
+
+
+    @Query("UPDATE bills SET status = 'UNPAID', linkedPaymentId = NULL, amountRemaining = :amount WHERE id = :id")
+    suspend fun reopenBillWith(id: String, amount: Double)
 }

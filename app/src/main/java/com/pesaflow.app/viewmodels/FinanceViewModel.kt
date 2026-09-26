@@ -539,7 +539,7 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     fun addBill(name: String, amount: Double, dueDate: Long, category: String, frequency: String) {
         viewModelScope.launch {
             repository.insertBill(
-                Bill(name = name, amount = amount, dueDate = dueDate, category = category, frequency = frequency)
+                Bill(name = name, amount = amount, dueDate = dueDate, category = category, frequency = frequency, amountRemaining = amount)
             )
             // Bills drive budgets: a recurring bill adjusts (never duplicates) its monthly budget
             if (frequency != "ONE_TIME" && category.isNotBlank()) {

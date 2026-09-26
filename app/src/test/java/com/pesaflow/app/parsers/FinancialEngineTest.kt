@@ -265,6 +265,43 @@ class FinancialEngineTest {
         assertEquals(DataQuality.SPARSE, s.quality)
     }
 
+    // §4 — paired legs move accounts with zero net wealth.
+    @Test
+    fun `paired transfer legs move accounts wealth neutrally`() {
+        val group = "g1"
+        val outLeg = tx(4000.0, TransactionType.TRANSFER, "Transfer", "Transfer to Bank")
+        val inLeg = tx(4000.0, TransactionType.TRANSFER, "Transfer", "Transfer from M-Pesa")
+        val legs = listOf(
+            outLeg.copy(accountKind = "M_PESA", transferGroupId = group, transferSide = "OUT"),
+            inLeg.copy(accountKind = "BANK", transferGroupId = group, transferSide = "IN")
+        )
+        val plain = buildSnapshot(base())
+        val moved = buildSnapshot(base(txs = base().txs + legs))
+        assertEquals(plain.netWorth, moved.netWorth)
+        assertEquals(plain.liquid, moved.liquid)
+        assertEquals(plain.flexible, moved.flexible)
+        assertEquals(Money.of(4000.0), moved.accounts.getValue(Account.BANK) - plain.accounts.getValue(Account.BANK))
+        assertTrue(moved.accounts.getValue(Account.M_PESA) < plain.accounts.getValue(Account.M_PESA))
+    }
+
+    // §8 — remainder owed drives reserves, never the headline amount.
+    @Test
+    fun `bill remainder drives reserves`() {
+        val full = buildSnapshot(base(bills = listOf(bill("Rent", 8000.0, 5))))
+        val part = buildSnapshot(
+            base(bills = listOf(
+                Bill(
+                    name = "Rent", amount = 8000.0,
+                    dueDate = System.currentTimeMillis() + 5L * 24 * 60 * 60 * 1000,
+                    category = "Bills", amountRemaining = 3000.0
+                )
+            ))
+        )
+        assertEquals(Money.of(3000.0), part.upcomingBillsTotal)
+        assertTrue(part.flexible > full.flexible)
+        assertEquals(Money.of(3000.0), part.obligations.first { it.name == "Rent" }.remaining)
+    }
+
     // §5/§7 — stored account wins; opening equity is held cash, never salary.
     @Test
     fun `stored account kind wins over derivation`() {

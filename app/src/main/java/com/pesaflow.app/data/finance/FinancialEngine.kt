@@ -103,7 +103,24 @@ fun buildSnapshot(input: SnapshotInput): FinancialSnapshot {
                 spendableDelta -= m
                 savedWealth += m
             }
-            TransactionType.TRANSFER -> Unit // net zero by construction
+            TransactionType.TRANSFER -> Unit // unpaired legacy: fully excluded; paired legs handled below
+        }
+    }
+    // Paired internal moves: OUT leaves the source account, IN arrives in the
+    // destination — zero net wealth, but each account shows its truth.
+    real.filter { it.type == TransactionType.TRANSFER && it.transferGroupId != null }.forEach { tx ->
+        val m = Money.of(tx.amount)
+        val acct = accountOf(tx)
+        when (tx.transferSide) {
+            "OUT" -> {
+                accounts[acct] = accounts.getValue(acct) - m
+                spendableDelta -= m
+            }
+            "IN" -> {
+                accounts[acct] = accounts.getValue(acct) + m
+                spendableDelta += m
+            }
+            else -> Unit
         }
     }
     val liquid = spendableDelta.coerceAtLeast(Money.ZERO)
@@ -125,24 +142,25 @@ fun buildSnapshot(input: SnapshotInput): FinancialSnapshot {
     // only real payment events move cash (bill rows alone never book money).
     val openBills = input.bills.filter { it.status != "PAID" }
     val obligations = openBills.map { b ->
+        val owed = b.amountRemaining.takeIf { it > 0 } ?: b.amount
         val days = ((b.dueDate - now) / DAY_MS).toInt()
         val overdue = b.dueDate < now
         val essential = b.category in ESSENTIAL_CATEGORIES ||
             (input.profile.debtLevel != DebtLevel.NONE && b.category == "Bills")
         val urgency = (if (essential) 2.0 else 1.0) * (if (overdue) 3.0 else 1.0) *
-            b.amount / maxOf(days, 1).toDouble()
+            owed / maxOf(days, 1).toDouble()
         ObligationView(
             name = b.name,
             amount = Money.of(b.amount),
-            remaining = Money.of(b.amount),
+            remaining = Money.of(owed),
             dueInDays = days,
             essential = essential,
             overdue = overdue,
             urgency = urgency,
-            dailyReserve = Money.of(b.amount / maxOf(days, 1).toDouble())
+            dailyReserve = Money.of(owed / maxOf(days, 1).toDouble())
         )
     }.sortedByDescending { it.urgency }
-    val upcomingBillsTotal = Money.of(openBills.sumOf { it.amount })
+    val upcomingBillsTotal = Money.of(openBills.sumOf { b -> b.amountRemaining.takeIf { it > 0 } ?: b.amount })
     val upcomingDebtTotal = Money.of(debtsOwed.sumOf { it.amount })
 
     // HELB semester treatment (§15): split fees vs upkeep only when the user
