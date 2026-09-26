@@ -280,78 +280,30 @@ fun buildSnapshot(input: SnapshotInput): FinancialSnapshot {
     val safeMonth = horizonValue(monthDaysLeft, reliableMonthly * (monthDaysLeft / 30.0), obligations)
     val safeSemester = (flexible - upcomingFees - reservedGoals).coerceAtLeast(Money.ZERO)
 
-    // Forecast scenarios (§19): robust daily paces, one-offs quarantined,
-    // weekday-blind but anomaly-aware. Output is month-end FLEXIBLE money.
-    val dailySpend = flows.filter {
-        it.type == TransactionType.EXPENSE && it.dateTimestamp >= now - 28 * DAY_MS
-    }.groupBy { it.dateTimestamp / DAY_MS }.mapValues { (_, l) -> l.sumOf { it.amount } }.values.toList()
-    val typicalDaily = median(dailySpend)
-    val cleanDaily = dailySpend.filter { typicalDaily == 0.0 || it <= typicalDaily * 5 }
-    val paceTypical = median(cleanDaily)
-    val paceCautious = percentile(cleanDaily, 75.0)
-    val paceKind = percentile(cleanDaily, 25.0)
+    // Forecast scenarios (§19, Phase 9 engine): robust daily paces, one-offs
+    // quarantined. Output is month-end FLEXIBLE money.
     val billsDue = obligations.filter { it.dueInDays <= monthDaysLeft }.fold(Money.ZERO) { acc, o -> acc + o.remaining }
-    fun projectEnd(daily: Double, incomeIn: Money) =
-        (flexible + incomeIn - Money.of(daily * monthDaysLeft) - billsDue).coerceAtLeast(Money.ZERO)
+    val paces = dailyPaces(flows, now)
+    val paceTypical = paces.typical
     val forecast = ForecastRange(
-        cautious = projectEnd(paceCautious, reliableMonthly * (monthDaysLeft / 30.0)),
-        typical = projectEnd(paceTypical, expectedMonthly * (monthDaysLeft / 30.0)),
-        favourable = projectEnd(paceKind, expectedMonthly * (monthDaysLeft / 30.0))
+        cautious = projectMonthEnd(flexible, paces.cautious, reliableMonthly * (monthDaysLeft / 30.0), billsDue, monthDaysLeft),
+        typical = projectMonthEnd(flexible, paces.typical, expectedMonthly * (monthDaysLeft / 30.0), billsDue, monthDaysLeft),
+        favourable = projectMonthEnd(flexible, paces.favourable, expectedMonthly * (monthDaysLeft / 30.0), billsDue, monthDaysLeft)
     )
 
     val explanations = mapOf(
-        "safeToday" to MetricExplanation(
-            label = "Safe to spend today",
-            headline = safeToday,
-            horizon = "today",
-            why = "Liquid money minus what is already committed, today's share of essentials and a safety buffer.",
-            contributors = listOf(
-                "Held ${MoneyFormatter.compact(liquid)}",
-                "Committed ${MoneyFormatter.compact(committed)}",
-                "Essentials today ≈ ${MoneyFormatter.compact(Money.of(essentialDaily))}",
-                "Buffer ${MoneyFormatter.compact(riskBuffer)}"
-            ),
-            basis = "${real.size} ledger rows over ~$spanDays days",
-            quality = quality
+        "safeToday" to explainSafeToday(
+            safeToday, liquid, committed, essentialDaily, riskBuffer,
+            "${real.size} ledger rows over ~$spanDays days", quality
         ),
-        "flexible" to MetricExplanation(
-            label = "Flexible money",
-            headline = flexible,
-            horizon = "now",
-            why = "Held cash minus everything already spoken for: bills, debts, goal and fee reservations.",
-            contributors = listOf(
-                "Held ${MoneyFormatter.compact(liquid)}",
-                "Bills ${MoneyFormatter.compact(upcomingBillsTotal)}",
-                "Debts owed ${MoneyFormatter.compact(upcomingDebtTotal)}",
-                "Reserved ${MoneyFormatter.compact(reserved)}"
-            ),
-            basis = "${obligations.size} open obligations, ${goalReservations.size} goal reservations",
-            quality = quality
+        "flexible" to explainFlexible(
+            flexible, liquid, upcomingBillsTotal, upcomingDebtTotal, reserved,
+            obligations.size, goalReservations.size, quality
         ),
-        "forecast" to MetricExplanation(
-            label = "Typical month-end position",
-            headline = forecast.typical,
-            horizon = "month end",
-            why = "Current flexible money, typical daily pace, expected income and bills due before month end.",
-            contributors = listOf(
-                "Typical pace ${MoneyFormatter.compact(Money.of(paceTypical))}/day",
-                "Cautious ${MoneyFormatter.compact(forecast.cautious)} · favourable ${MoneyFormatter.compact(forecast.favourable)}"
-            ),
-            basis = "28-day median pace, one-offs quarantined",
-            quality = quality
+        "forecast" to explainForecast(
+            forecast.typical, paceTypical, forecast.cautious, forecast.favourable, quality
         ),
-        "netWorth" to MetricExplanation(
-            label = "Net worth",
-            headline = netWorth,
-            horizon = "now",
-            why = "Everything owned (liquid + savings + investments) minus everything owed.",
-            contributors = listOf(
-                "Assets ${MoneyFormatter.compact(totalAssets)}",
-                "Owed ${MoneyFormatter.compact(totalLiabilities)}"
-            ),
-            basis = "ledger + debt book",
-            quality = quality
-        )
+        "netWorth" to explainNetWorth(netWorth, totalAssets, totalLiabilities, quality)
     )
 
     return FinancialSnapshot(
