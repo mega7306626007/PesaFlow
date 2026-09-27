@@ -253,6 +253,11 @@ fun BudgetsScreen(viewModel: FinanceViewModel) {
                         }
                         val avgMap = guessAvg + avgMapLedger
                         val rule = if (calcRule == "Student") BudgetRule.CAMPUS else BudgetRule.SPLIT
+                        // Declared envelopes (matatu preset, onboarding, manual):
+                        // a number the user already set is a promise the plan keeps.
+                        val declaredMap = budgets.filter { it.type == BudgetType.MONTHLY }
+                            .groupBy { it.category.lowercase() }
+                            .mapValues { e -> e.value.sumOf { it.limitAmount }.toInt() }
                         val plan = smartBudget(
                             monthlyBase = calcBase,
                             rule = rule,
@@ -260,7 +265,8 @@ fun BudgetsScreen(viewModel: FinanceViewModel) {
                             persona = personaSel,
                             openBillByCategory = billMap,
                             avg90ByCategory = avgMap,
-                            style = calcStyle
+                            style = calcStyle,
+                            declaredByCategory = declaredMap
                         )
                         // Daily auto mode still derives from monthly envelopes when present.
                         val periodName = plan.periodName

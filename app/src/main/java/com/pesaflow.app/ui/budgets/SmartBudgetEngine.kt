@@ -54,8 +54,10 @@ private data class TierDef(
 private fun personaTiers(persona: Persona): List<TierDef> = when (persona) {
     Persona.PARENTS_FAR -> listOf(
         TierDef("Home", 4.0, 1, floorMonthly = 1000),
-        TierDef("Transport", 24.0, 2, floorMonthly = 5000, mobilityEssential = true),
-        TierDef("Food", 22.0, 1, floorMonthly = 4500),
+        TierDef("Transport", 28.0, 2, floorMonthly = 6500, mobilityEssential = true),
+        // Home-fed: eats at home (~50/day plates), so Food is tier 2 and
+        // unshielded — fares eat first, never the other way round.
+        TierDef("Food", 10.0, 2),
         TierDef("School", 8.0, 2, floorMonthly = 300),
         TierDef("Data", 4.0, 2),
         TierDef("Airtime", 3.0, 2),
@@ -70,7 +72,8 @@ private fun personaTiers(persona: Persona): List<TierDef> = when (persona) {
     Persona.PARENTS_NEAR -> listOf(
         TierDef("Home", 4.0, 1, floorMonthly = 1000),
         TierDef("Transport", 8.0, 3, floorMonthly = 1500),
-        TierDef("Food", 20.0, 1, floorMonthly = 3500),
+        // Home-fed like FAR: small plate money, tier 2, unshielded.
+        TierDef("Food", 12.0, 2),
         TierDef("School", 10.0, 2, floorMonthly = 300),
         TierDef("Data", 4.0, 2),
         TierDef("Airtime", 3.0, 2),
@@ -190,7 +193,10 @@ fun smartBudget(
     persona: Persona,
     openBillByCategory: Map<String, Int> = emptyMap(),
     avg90ByCategory: Map<String, Int> = emptyMap(),
-    style: LifestylePreset = LifestylePreset.BALANCED
+    style: LifestylePreset = LifestylePreset.BALANCED,
+    // Declared envelopes (matatu preset, onboarding, manual): a stated number
+    // is a promise — the plan never suggests below it on monthly periods.
+    declaredByCategory: Map<String, Int> = emptyMap()
 ): SmartBudgetResult {
     val scale = periodScale(period)
     val periodName = periodNameOf(period)
@@ -225,15 +231,16 @@ fun smartBudget(
     }
 
     // Tight mode: monthly base below survival floors → protect tier 1 first.
-    val floorTotal = styledTiers.filter { it.tier == 1 }.sumOf { it.floorMonthly }
+    // Essential commutes count as survival: fares are funded like food.
+    val floorTotal = styledTiers.filter { it.tier == 1 || it.mobilityEssential }.sumOf { it.floorMonthly }
     val tightMode = monthlyBase < maxOf(8000.0, floorTotal * 1.5)
 
     val totalWeight = styledTiers.sumOf { it.weight }.coerceAtLeast(1.0)
     val ordered = styledTiers.sortedWith(compareBy({ it.tier }, { -it.weight }))
 
-    // Phase 1: floors for survival tier, scaled.
+    // Phase 1: floors for survival tier AND essential commutes, scaled.
     val floorScaled = ordered.associate { t ->
-        t.category to if (t.tier == 1) round(t.floorMonthly * scale / step) * step else 0.0
+        t.category to if (t.tier == 1 || t.mobilityEssential) round(t.floorMonthly * scale / step) * step else 0.0
     }
     var floorSum = floorScaled.values.sum()
     var remaining = (monthlyBase * scale - floorSum).coerceAtLeast(0.0)
@@ -255,7 +262,7 @@ fun smartBudget(
         alloc[t.category] = (floorScaled[t.category] ?: 0.0) + share
     }
 
-    // Phase 3: neat rounding + bill floors (monthly only) + drop dust.
+    // Phase 3: neat rounding + bill/declared floors (monthly only) + drop dust.
     val suggestions = mutableListOf<BudgetSuggestion>()
     val dropped = mutableListOf<String>()
     ordered.forEach { t ->
@@ -265,13 +272,20 @@ fun smartBudget(
             openBillByCategory.entries.firstOrNull { it.key.equals(t.category, ignoreCase = true) }?.value ?: 0
         } else 0
         if (neat < billFloor) neat = billFloor
+        val declaredFloor = if (period == BudgetType.MONTHLY) {
+            declaredByCategory.entries.firstOrNull { it.key.equals(t.category, ignoreCase = true) }?.value ?: 0
+        } else 0
+        if (neat < declaredFloor) neat = declaredFloor
         val avg = avg90ByCategory.entries.firstOrNull { it.key.equals(t.category, ignoreCase = true) }?.value ?: 0
-        if (neat <= 0 && billFloor <= 0) {
+        if (neat <= 0 && billFloor <= 0 && declaredFloor <= 0) {
             dropped.add(t.category)
         } else {
             val pct = if (monthlyBase > 0) ((neat / (monthlyBase * scale)) * 100).toInt() else 0
+            val homeFed = persona == Persona.PARENTS_FAR || persona == Persona.PARENTS_NEAR
             val reason = when {
                 billFloor > 0 && neat <= billFloor -> "Covers your open ${t.category.lowercase()} bill"
+                declaredFloor > 0 && neat <= declaredFloor -> "Kept at your set ${t.category.lowercase()} budget"
+                t.category == "Food" && homeFed -> "Home-fed — small plate money, fares eat first"
                 t.category == "Food" && persona == Persona.HOSTEL_NOCOOK -> "Every meal bought — protect it fully"
                 t.category == "Food" -> if (tightMode) "Protected first — eating comes before everything" else "Survival tier — funded first"
                 t.category == "Rent" -> "Roof over your head — non-negotiable"
