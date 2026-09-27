@@ -382,7 +382,7 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                             )
                         }
                     }
-                    if (fundSource != "SELF") {
+                    if ("helb" in visible) {
                         OutlinedTextField(value = helbSem, onValueChange = { helbSem = it }, label = { Text("HELB per semester (KSh, optional)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
                         Text("Splits into monthly upkeep automatically — carried forward each term, no re-typing.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
