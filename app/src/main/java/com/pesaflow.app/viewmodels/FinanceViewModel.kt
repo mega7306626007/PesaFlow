@@ -312,6 +312,7 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
 
     sealed interface Undoable {
         data class Approved(val pending: PendingTransaction, val txId: String) : Undoable
+        data class ApprovedAll(val items: List<Approved>) : Undoable
         data class Rejected(val pending: PendingTransaction) : Undoable
         data class Deleted(val tx: Transaction) : Undoable
     }
@@ -334,6 +335,22 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
             // Approvals are corrections too — teach the engine.
             CategoryMemory.learn(prefs(), tx.merchant, finalCategory)
             com.pesaflow.app.data.ledger.ConfidenceMemory.record(prefs(), pending.merchant, true)
+        }
+    }
+
+
+    // Bulk confirm: one tap approves every "sure" row as suggested, one undo
+    // slot restores them all. Anything unsure stays for human eyes.
+    fun approveAllPending(rows: List<PendingTransaction>) {
+        if (rows.isEmpty()) return
+        viewModelScope.launch {
+            val done = rows.map { p ->
+                val tx = repository.approvePendingTransaction(p, p.category, p.type)
+                CategoryMemory.learn(prefs(), tx.merchant, p.category)
+                com.pesaflow.app.data.ledger.ConfidenceMemory.record(prefs(), p.merchant, true)
+                Undoable.Approved(p, tx.id)
+            }
+            pushUndo(Undoable.ApprovedAll(done))
         }
     }
 
@@ -371,6 +388,10 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
                 is Undoable.Approved -> {
                     repository.deleteTransaction(undone.txId)
                     repository.insertPendingTransaction(undone.pending)
+                }
+                is Undoable.ApprovedAll -> undone.items.forEach {
+                    repository.deleteTransaction(it.txId)
+                    repository.insertPendingTransaction(it.pending)
                 }
                 is Undoable.Rejected -> repository.insertPendingTransaction(undone.pending)
                 is Undoable.Deleted -> repository.insertTransaction(undone.tx)

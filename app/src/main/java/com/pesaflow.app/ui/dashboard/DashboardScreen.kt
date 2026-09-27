@@ -551,10 +551,29 @@ fun DashboardScreen(
             // Pending Verification Engine List View (max 3, expandable)
             if (pendingTransactions.isNotEmpty() && "pending" !in hiddenSections) {
                 item {
+                    // Bulk bar: every "sure" row (history vouches ≥85%) confirms
+                    // in one tap; unsure rows stay for human eyes.
+                    val dashPrefs = LocalContext.current.getSharedPreferences("pesaflow_prefs", android.content.Context.MODE_PRIVATE)
+                    val sureRows = remember(pendingTransactions) {
+                        pendingTransactions.filter {
+                            com.pesaflow.app.data.ledger.ConfidenceMemory.effective(dashPrefs, it.merchant, it.confidenceScore) >= 0.85f
+                        }
+                    }
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Text("Pending (${pendingTransactions.size}) 🔔", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                        TextButton(onClick = { showAllPending = !showAllPending }) {
-                            Text(if (showAllPending) "Less" else "View all")
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (sureRows.isNotEmpty()) {
+                                TextButton(onClick = {
+                                    viewModel.approveAllPending(sureRows)
+                                    scope.launch {
+                                        val r = snackbar.showSnackbar("${sureRows.size} confirmed — history vouched.", "Undo", withDismissAction = true, duration = SnackbarDuration.Long)
+                                        if (r == SnackbarResult.ActionPerformed) viewModel.undoLast()
+                                    }
+                                }) { Text("Confirm all sure (${sureRows.size})") }
+                            }
+                            TextButton(onClick = { showAllPending = !showAllPending }) {
+                                Text(if (showAllPending) "Less" else "View all")
+                            }
                         }
                     }
                 }
@@ -853,7 +872,7 @@ fun DashboardScreen(
         }
         val coachBody = when (coachStep) {
             0 -> "Tap + below for any expense. Amount, where, done — under 5 seconds."
-            1 -> "M-Pesa texts land here as pending. You confirm each one — nothing enters your books alone."
+            1 -> "M-Pesa texts land here as pending. Sure ones confirm all at once — the rest get your eyes, one by one."
             else -> "Safe-to-spend is your one number: what's actually okay to use today."
         }
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)), contentAlignment = Alignment.BottomCenter) {
