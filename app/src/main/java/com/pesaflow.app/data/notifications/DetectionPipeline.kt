@@ -32,17 +32,23 @@ internal suspend fun handleDetectedTransaction(context: Context, pending: Pendin
     val database = AppDatabase.getDatabase(context)
     val repo = FinanceRepository(database)
     val prefs = context.getSharedPreferences("pesaflow_prefs", Context.MODE_PRIVATE)
+    // Identity memory: named senders arrive resolved — only strangers ping raw.
+    val known = com.pesaflow.app.data.ledger.resolveIdentities(
+        listOf(pending),
+        { m -> com.pesaflow.app.data.ledger.MerchantMemory.lookup(prefs, m)?.label },
+        { m -> com.pesaflow.app.data.ledger.CategoryMemory.lookup(prefs, m) }
+    ).first()
     if (prefs.getBoolean("auto_approve_mpesa", false)) {
         val tx = Transaction(
-            amount = pending.amount,
-            type = pending.type,
-            category = pending.category,
-            dateTimestamp = pending.dateTimestamp,
-            merchant = pending.merchant,
-            description = pending.rawText,
-            paymentMethod = pending.paymentMethod,
-            source = pending.source,
-            sourceTransactionId = pending.sourceTransactionId,
+            amount = known.amount,
+            type = known.type,
+            category = known.category,
+            dateTimestamp = known.dateTimestamp,
+            merchant = known.displayMerchant.ifBlank { known.merchant },
+            description = known.rawText,
+            paymentMethod = known.paymentMethod,
+            source = known.source,
+            sourceTransactionId = known.sourceTransactionId,
             confirmed = true
         )
         val code = tx.sourceTransactionId.orEmpty()
@@ -59,19 +65,19 @@ internal suspend fun handleDetectedTransaction(context: Context, pending: Pendin
                 "KSh ${tx.amount.toInt()} (${tx.category}) saved to your ledger."
             )
         }
-    } else if (repo.insertPendingTransaction(pending)) {
-        showPendingNotification(context, pending)
+    } else if (repo.insertPendingTransaction(known)) {
+        showPendingNotification(context, known)
     }
     // Every funneled SMS may carry a balance tail — harvest it for display.
     // Scans replay newest-first, so only a same-or-newer tail may overwrite.
-    com.pesaflow.app.data.parsers.parseBalance(pending.rawText)?.let {
+    com.pesaflow.app.data.parsers.parseBalance(known.rawText)?.let {
         val storedAt = com.pesaflow.app.data.parsers.readMpesaBalance(context)?.second ?: 0L
-        if (pending.dateTimestamp >= storedAt) {
+        if (known.dateTimestamp >= storedAt) {
             com.pesaflow.app.data.parsers.saveMpesaBalance(context, it)
         }
     }
     // Transaction-cost tails bleed silently — track the monthly fee pot.
-    com.pesaflow.app.data.parsers.parseFee(pending.rawText)?.let {
+    com.pesaflow.app.data.parsers.parseFee(known.rawText)?.let {
         com.pesaflow.app.data.parsers.saveFee(context, it)
     }
 }

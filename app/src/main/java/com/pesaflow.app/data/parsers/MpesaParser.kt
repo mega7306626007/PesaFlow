@@ -1061,15 +1061,17 @@ object MpesaParser {
                 amount = rawAmount,
                 type = type,
                 category = inferCategory(merchant, type),
+                // Fee flag rides subcategory, leaving displayMerchant /
+                // displayCategory free for identity memory (alias + learned
+                // category stamped by the scan pipeline, not the parser).
+                subcategory = if (isCost) "Transaction Cost" else "",
                 merchant = merchant,
                 dateTimestamp = timestamp,
                 paymentMethod = method,
                 source = TransactionSource.MPESA_SMS,
                 sourceTransactionId = code,
                 rawText = raw,
-                confidenceScore = confidence,
-                // NEW: flag so engines can exclude from budget aggregates.
-                displayCategory = if (isCost) "Transaction Cost" else ""
+                confidenceScore = confidence
             )
         } catch (e: Exception) {
             null

@@ -14,7 +14,7 @@ class TransactionCostTest {
         val sms = "QWERTY1234 Confirmed. KSh7.00 paid to Shop. on 12/9/26 at 9:15 AM"
         val tx = MpesaParser.parseMessage(sms)
         assertNotNull(tx)
-        assertEquals("Transaction Cost", tx!!.displayCategory)
+        assertEquals("Transaction Cost", tx!!.subcategory)
     }
 
     @Test
@@ -22,7 +22,7 @@ class TransactionCostTest {
         val sms = "QWERTY1234 Confirmed. KSh28.00 paid to Shop. on 12/9/26 at 9:15 AM"
         val tx = MpesaParser.parseMessage(sms)
         assertNotNull(tx)
-        assertEquals("Transaction Cost", tx!!.displayCategory)
+        assertEquals("Transaction Cost", tx!!.subcategory)
     }
 
     @Test
@@ -30,7 +30,7 @@ class TransactionCostTest {
         val sms = "QWERTY1234 Confirmed. KSh0.75 paid to Shop. on 12/9/26 at 9:15 AM"
         val tx = MpesaParser.parseMessage(sms)
         assertNotNull(tx)
-        assertEquals("Transaction Cost", tx!!.displayCategory)
+        assertEquals("Transaction Cost", tx!!.subcategory)
     }
 
     @Test
@@ -38,7 +38,7 @@ class TransactionCostTest {
         val sms = "QWERTY1234 Confirmed. KSh500.00 paid to Naivas Supermarket. on 12/9/26 at 9:15 AM"
         val tx = MpesaParser.parseMessage(sms)
         assertNotNull(tx)
-        assertEquals("", tx!!.displayCategory)
+        assertEquals("", tx!!.subcategory)
     }
 
     @Test
@@ -46,7 +46,7 @@ class TransactionCostTest {
         val sms = "QWERTY1234 Confirmed. KSh123.45 paid to Shop. on 12/9/26 at 9:15 AM"
         val tx = MpesaParser.parseMessage(sms)
         assertNotNull(tx)
-        assertEquals("", tx!!.displayCategory)
+        assertEquals("", tx!!.subcategory)
     }
 
     @Test
@@ -54,7 +54,7 @@ class TransactionCostTest {
         val sms = "QWERTY1234 Confirmed. KSh61.00 paid to Shop. on 12/9/26 at 9:15 AM"
         val tx = MpesaParser.parseMessage(sms)
         assertNotNull(tx)
-        assertEquals("", tx!!.displayCategory)
+        assertEquals("", tx!!.subcategory)
     }
 
     @Test
@@ -62,6 +62,6 @@ class TransactionCostTest {
         val sms = "QWERTY1234 Confirmed. KSh7 paid to Shop. on 12/9/26 at 9:15 AM"
         val tx = MpesaParser.parseMessage(sms)
         assertNotNull(tx)
-        assertEquals("", tx!!.displayCategory)
+        assertEquals("", tx!!.subcategory)
     }
 }

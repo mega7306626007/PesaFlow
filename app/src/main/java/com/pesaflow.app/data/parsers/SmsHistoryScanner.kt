@@ -4,6 +4,9 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.provider.Telephony
 import androidx.core.content.ContextCompat
+import com.pesaflow.app.data.ledger.CategoryMemory
+import com.pesaflow.app.data.ledger.MerchantMemory
+import com.pesaflow.app.data.ledger.resolveIdentities
 import com.pesaflow.app.data.models.PendingTransaction
 import com.pesaflow.app.data.models.TransactionType
 
@@ -94,16 +97,25 @@ suspend fun scanRecentSms(
     } catch (e: Exception) {
         return SmsScanResult(found = found)
     }
+    // Identity memory: first-scan namings resolve every later scan — a known
+    // "Nancy" arrives as Mom · Food with nothing left to confirm. Totals below
+    // run on resolved rows so the category override is already reflected.
+    val memPrefs = context.getSharedPreferences("pesaflow_prefs", Context.MODE_PRIVATE)
+    val resolved = resolveIdentities(
+        parsed,
+        { m -> MerchantMemory.lookup(memPrefs, m)?.label },
+        { m -> CategoryMemory.lookup(memPrefs, m) }
+    )
     // Wallet display: newest balance tail seen (scan order is newest-first).
     newestBalance?.let { saveMpesaBalance(context, it) }
     var income = 0.0
     var expense = 0.0
     val cats = mutableMapOf<String, Double>()
-    parsed.forEach { p ->
+    resolved.forEach { p ->
         // Only true spending paces budgets — transfers/savings moves are not expenses.
         if (p.type == TransactionType.INCOME) income += p.amount
         else if (p.type == TransactionType.EXPENSE) expense += p.amount
         if (p.type == TransactionType.EXPENSE) cats[p.category] = (cats[p.category] ?: 0.0) + p.amount
     }
-    return SmsScanResult(found, parsed, unreadable, income, expense, cats, daysBack, capped)
+    return SmsScanResult(found, resolved, unreadable, income, expense, cats, daysBack, capped)
 }
