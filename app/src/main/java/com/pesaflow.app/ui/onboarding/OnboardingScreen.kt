@@ -432,7 +432,7 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                             Spacer(modifier = Modifier.height(8.dp))
                             Text("Who are these people? 👥", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                             Text(
-                                "Only frequent senders (16+ transactions) ask — one-offs file silently. Name each once and every row files itself, past and future.",
+                                "Only 16+ texts or KSh 1,500+ moved ask — one-offs file silently. Name each once and every row files itself, past and future.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

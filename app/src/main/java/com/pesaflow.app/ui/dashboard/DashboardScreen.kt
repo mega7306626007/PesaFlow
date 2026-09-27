@@ -78,10 +78,23 @@ fun DashboardScreen(
     val hiddenSections by viewModel.hiddenSections.collectAsState()
     val profile by viewModel.universityProfile.collectAsState()
 
-    val weekdaySpending = remember(transactions) {
+    // Weekday pattern defaults to THIS week — all-time is opt-in, never the
+    // default. A 5000-SMS history must not masquerade as "this week".
+    var weekdayScope by remember { mutableStateOf("week") }
+    val weekdaySpending = remember(transactions, weekdayScope) {
         val cal = Calendar.getInstance()
+        val weekStart = (cal.clone() as Calendar).apply {
+            set(Calendar.DAY_OF_WEEK, firstDayOfWeek)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
         val map = mutableMapOf("Mon" to 0.0, "Tue" to 0.0, "Wed" to 0.0, "Thu" to 0.0, "Fri" to 0.0, "Sat" to 0.0, "Sun" to 0.0)
-        transactions.filter { it.type == TransactionType.EXPENSE && !it.isSample }.forEach { tx ->
+        transactions.filter {
+            it.type == TransactionType.EXPENSE && !it.isSample &&
+                (weekdayScope == "all" || it.dateTimestamp >= weekStart)
+        }.forEach { tx ->
             cal.timeInMillis = tx.dateTimestamp
             val dayStr = when (cal.get(Calendar.DAY_OF_WEEK)) {
                 Calendar.MONDAY -> "Mon"
@@ -473,8 +486,19 @@ fun DashboardScreen(
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text("Smart Analyzer 🧠", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.height(12.dp))
-                        // Weekday spending breakdown
-                        Text("Weekday Spending Breakdown", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+                        // Weekday spending breakdown — this week by default,
+                        // all-time only on request.
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Weekday Spending Breakdown", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                FilterChip(selected = weekdayScope == "week", onClick = { weekdayScope = "week" }, label = { Text("This week") })
+                                FilterChip(selected = weekdayScope == "all", onClick = { weekdayScope = "all" }, label = { Text("All time") })
+                            }
+                        }
                         Spacer(modifier = Modifier.height(6.dp))
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                             weekdays.forEach { day ->
@@ -562,6 +586,17 @@ fun DashboardScreen(
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Text("Pending (${pendingTransactions.size}) 🔔", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                         Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (pendingTransactions.size >= 2) {
+                                TextButton(onClick = {
+                                    scope.launch {
+                                        val n = viewModel.removeDuplicatePending()
+                                        snackbar.showSnackbar(
+                                            if (n == 0) "No duplicates — queue is clean."
+                                            else "$n duplicate${if (n == 1) "" else "s"} removed."
+                                        )
+                                    }
+                                }) { Text("Remove duplicates") }
+                            }
                             if (sureRows.isNotEmpty()) {
                                 TextButton(onClick = {
                                     viewModel.approveAllPending(sureRows)

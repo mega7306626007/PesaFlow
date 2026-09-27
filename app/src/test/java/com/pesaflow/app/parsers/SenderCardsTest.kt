@@ -78,11 +78,30 @@ class SenderCardsTest {
     @Test
     fun `only senders above sixteen transactions surface`() {
         val quiet = (1..16).map { tx("Quiet", 100.0, TransactionType.EXPENSE, it.toLong()) }
-        assertTrue(groupSenderCards(quiet).isEmpty())
+        assertTrue(groupSenderCards(quiet, minTransactions = 16, minTotal = Double.MAX_VALUE).isEmpty())
         val busy = (1..17).map { tx("Busy", 100.0, TransactionType.EXPENSE, it.toLong()) }
-        val cards = groupSenderCards(quiet + busy)
+        val cards = groupSenderCards(quiet + busy, minTransactions = 16, minTotal = Double.MAX_VALUE)
         assertEquals(1, cards.size)
         assertEquals("Busy", cards[0].merchant)
         assertEquals(17, cards[0].count)
+    }
+
+    @Test
+    fun `heavy money below count still earns a card`() {
+        // 3 texts moving KSh 2,000: under the count bar, over the money bar.
+        val rows = listOf(
+            tx("Landlord", 1000.0, TransactionType.EXPENSE, 1),
+            tx("Landlord", 800.0, TransactionType.EXPENSE, 5),
+            tx("Landlord", 200.0, TransactionType.EXPENSE, 9)
+        )
+        val cards = groupSenderCards(rows)
+        assertEquals(1, cards.size)
+        assertEquals("Landlord", cards[0].merchant)
+    }
+
+    @Test
+    fun `light money below count stays silent`() {
+        val rows = (1..5).map { tx("Kiosk", 100.0, TransactionType.EXPENSE, it.toLong()) }
+        assertTrue(groupSenderCards(rows).isEmpty())
     }
 }

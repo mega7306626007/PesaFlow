@@ -355,6 +355,31 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     }
 
 
+    // User-initiated sweep: pending rows duplicated by double-scans collapse
+    // to the earliest — same code, or same amount+merchant+day. Everything
+    // else untouched. Returns removals for the toast.
+    suspend fun removeDuplicatePending(): Int {
+        val rows = repository.pendingOnce().sortedBy { it.dateTimestamp }
+        val seenCodes = mutableSetOf<String>()
+        val seenFuzzy = mutableSetOf<Triple<Double, String, Long>>()
+        var removed = 0
+        rows.forEach { p ->
+            val code = p.sourceTransactionId.orEmpty()
+            val dup = if (code.isNotBlank()) {
+                !seenCodes.add(code)
+            } else {
+                val key = Triple(p.amount, p.merchant.trim().lowercase(), p.dateTimestamp / 86400000L)
+                !seenFuzzy.add(key)
+            }
+            if (dup) {
+                repository.deletePendingTransaction(p.id)
+                removed++
+            }
+        }
+        return removed
+    }
+
+
     fun rejectPending(pending: PendingTransaction) {
         viewModelScope.launch {
             repository.rejectPendingTransaction(pending.id)

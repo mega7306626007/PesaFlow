@@ -36,13 +36,15 @@ fun isKnownEntity(merchant: String): Boolean {
 }
 
 // Groups parsed rows by sender. isNamed covers user aliases (MerchantMemory):
-// already-named senders never surface again. Only frequent senders surface —
-// a one-off needs no naming ceremony. Sorted busiest-first so the first cards
-// the user confirms clear the most rows.
+// already-named senders never surface again. A card is earned by frequency
+// (16+ texts) OR weight (KSh 1,500+ moved) — a one-off needs no naming
+// ceremony, but real money always introduces itself. Sorted busiest-first so
+// the first cards the user confirms clear the most rows.
 fun groupSenderCards(
     parsed: List<PendingTransaction>,
     isNamed: (String) -> Boolean = { false },
-    minTransactions: Int = 16
+    minTransactions: Int = 16,
+    minTotal: Double = 1500.0
 ): List<SenderCard> {
     val byMerchant = parsed
         .filter { it.merchant.isNotBlank() }
@@ -63,5 +65,6 @@ fun groupSenderCards(
             lastSeen = rows.maxOf { it.dateTimestamp },
             suggestedCategory = suggested
         )
-    }.filter { it.count > minTransactions }.sortedByDescending { it.count }
+    }.filter { it.count > minTransactions || it.expenseTotal + it.incomeTotal >= minTotal }
+        .sortedByDescending { it.count }
 }

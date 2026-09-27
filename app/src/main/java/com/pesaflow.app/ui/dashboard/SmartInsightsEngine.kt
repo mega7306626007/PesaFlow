@@ -113,6 +113,23 @@ heldBalance: Double = 0.0
         ))
     }
 
+    // Payday timing: does money burn right after it lands? Each payday owns
+    // the spending until the next one — no double-counting.
+    com.pesaflow.app.data.analytics.paydaySplurge(
+        txs.filter { !it.isSample }.map {
+            com.pesaflow.app.data.parsers.LedgerRow(it.amount, it.type, it.category, it.merchant, it.dateTimestamp)
+        }
+    )?.let { splurge ->
+        if (splurge.paydays >= 2 && splurge.avgPctSpent7d >= 60) {
+            out.add(t(
+                "Payday splurge: ~${splurge.avgPctSpent7d}% of each income is gone within a week of landing (${splurge.paydays} paydays). Move savings out on day one. 💸",
+                "Payday splurge: ~${splurge.avgPctSpent7d}% ya income inaisha wiki moja after kuland (${splurge.paydays} paydays). Toa savings day one. 💸",
+                "Matumizi ya siku ya mshahara: ~${splurge.avgPctSpent7d}% ya mapato yanaisha wiki moja baada ya kuingia (siku ${splurge.paydays} za malipo). Toa akiba siku ya kwanza. 💸",
+                "Payday splurge: ~${splurge.avgPctSpent7d}% ya income inaisha within a week of landing (${splurge.paydays} paydays). Move savings day one. 💸"
+            ))
+        }
+    }
+
     // Month-end forecast: current burn projected out, judged vs ALL budget.
     run {
         val dim = cal.getActualMaximum(Calendar.DAY_OF_MONTH)

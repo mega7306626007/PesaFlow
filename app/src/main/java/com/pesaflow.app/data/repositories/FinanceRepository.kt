@@ -259,6 +259,11 @@ class FinanceRepository(private val database: AppDatabase) {
     }
 
 
+    /** One-shot pending list for user-initiated sweeps (dedup, bulk ops). */
+    suspend fun pendingOnce(): List<PendingTransaction> =
+        database.pendingTransactionDao().getAllPendingTransactions().first()
+
+
     suspend fun approvePendingTransaction(pending: PendingTransaction, customizedCategory: String, finalType: TransactionType = pending.type): Transaction {
         val transaction = Transaction(
             amount = pending.amount,
