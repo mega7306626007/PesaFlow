@@ -174,6 +174,19 @@ private val STAPLES = listOf(
  )
 
 
+// One persona gear: the planner's Transport|Hostel|Tight|Full presets derive
+// from the app-wide setup (home/commute/cooking) instead of living a second,
+// diverging life. Pure mapping — tested.
+fun defaultMealPersona(appPersona: com.pesaflow.app.ui.budgets.Persona): String = when (appPersona) {
+    com.pesaflow.app.ui.budgets.Persona.PARENTS_FAR -> "Transport"
+    com.pesaflow.app.ui.budgets.Persona.PARENTS_NEAR -> "Tight"
+    com.pesaflow.app.ui.budgets.Persona.RENT_WALK -> "Hostel"
+    com.pesaflow.app.ui.budgets.Persona.RENT_COMMUTE -> "Transport"
+    com.pesaflow.app.ui.budgets.Persona.HOSTEL_NOCOOK -> "Full"
+    com.pesaflow.app.ui.budgets.Persona.HOSTEL_COOK -> "Hostel"
+}
+
+
 private fun scannedMonthlyFoodOf(answers: String): Int? {
     val m = Regex("scan_food=(\\d+)").find(answers) ?: return null
     return m.groupValues[1].toIntOrNull()?.takeIf { it > 0 }
@@ -204,6 +217,8 @@ fun MealPlannerScreen(viewModel: FinanceViewModel) {
     val kitchenStock by viewModel.kitchenStock.collectAsState()
     val ledgerTxns by viewModel.allTransactions.collectAsState()
     val budgets by viewModel.budgets.collectAsState()
+    // Engine link: survival top-ups can ride the snapshot's flexible money.
+    val engineSnap by viewModel.financialSnapshot.collectAsState()
     // Campus pack: real spots + plates near this university, if we know it.
     val uniProfile by viewModel.universityProfile.collectAsState()
     val campusSpots = remember(uniProfile?.universityName) {
@@ -261,9 +276,9 @@ fun MealPlannerScreen(viewModel: FinanceViewModel) {
     // life — transport kids get lunch-only near the stage, hostel cooks get
     // the full kitchen, survivors get the cheapest plates. Remembered.
     var persona by remember { mutableStateOf(mealPrefs.getString("meal_persona", "") ?: "") }
-    fun applyPersona(name: String) {
-        persona = name
-        mealPrefs.edit().putString("meal_persona", name).apply()
+    // Controls without persistence: auto-follow reconfigures without
+    // overwriting the user's stored pick.
+    fun applyMealControls(name: String) {
         when (name) {
             "Transport" -> {
                 includeBreakfast = false; includeLunch = true; includeSupper = false
@@ -282,6 +297,20 @@ fun MealPlannerScreen(viewModel: FinanceViewModel) {
                 sourceFilter = "Any"; maxPlate = "Any"; forceProtein = true
             }
         }
+    }
+    fun applyPersona(name: String) {
+        persona = name
+        mealPrefs.edit().putString("meal_persona", name).apply()
+        applyMealControls(name)
+    }
+    // Auto-follow: no manual pick (blank) or explicit Auto tracks the profile —
+    // change home/commute/cooking and the planner reconfigures itself.
+    val appPersona = remember(viewModel.getOnboardingAnswers()) {
+        com.pesaflow.app.ui.budgets.parsePersona(viewModel.getOnboardingAnswers())
+    }
+    val effectiveMealPersona = if (persona == "Auto" || persona.isBlank()) defaultMealPersona(appPersona) else persona
+    LaunchedEffect(effectiveMealPersona) {
+        if (persona == "Auto" || persona.isBlank()) applyMealControls(effectiveMealPersona)
     }
     // Survival mode: stretch stock till a date, top-ups only for the gap
     var survivalDays by remember { mutableStateOf(7) }
@@ -1042,9 +1071,22 @@ fun MealPlannerScreen(viewModel: FinanceViewModel) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Text("Who eats? 🍽️", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text("Transport = lunch-only near the stage · Hostel = full kitchen · Tight = cheapest plates · Full = everything.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        "Auto follows your profile (home/commute/cooking) — currently $effectiveMealPersona. Tap any preset to take manual control.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FilterChip(
+                            selected = persona == "Auto" || persona.isBlank(),
+                            onClick = {
+                                persona = "Auto"
+                                mealPrefs.edit().putString("meal_persona", "Auto").apply()
+                                applyMealControls(effectiveMealPersona)
+                            },
+                            label = { Text("✨ Auto") }
+                        )
                         listOf("Transport" to "🚌", "Hostel" to "🏠", "Tight" to "🫙", "Full" to "💼").forEach { (name, emoji) ->
                             FilterChip(selected = persona == name, onClick = { applyPersona(name) }, label = { Text("$emoji $name") })
                         }
@@ -1237,6 +1279,24 @@ fun MealPlannerScreen(viewModel: FinanceViewModel) {
                         label = { Text("Top-up cash (KSh, 0 = stock only)") },
                         modifier = Modifier.fillMaxWidth()
                     )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    // One unit: the engine's flexible money fills the top-up —
+                    // survival and the snapshot finally read the same wallet.
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "Engine flexible: KSh ${engineSnap.flexible.toDouble().toInt()}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        TextButton(onClick = {
+                            survivalCash = engineSnap.flexible.toDouble().toInt().toString()
+                            survivalPlan = null
+                        }) { Text("Use it") }
+                    }
                     Spacer(modifier = Modifier.height(4.dp))
                     val snapshot = kitchenStock.filter { it.dailyUse > 0 && it.qtyLeft > 0 }
                     Text(
