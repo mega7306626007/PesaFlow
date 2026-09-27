@@ -36,6 +36,10 @@ import com.pesaflow.app.ui.income.IncomeSetupBlock
 import com.pesaflow.app.ui.language.Copy4
 import com.pesaflow.app.viewmodels.FinanceViewModel
 import androidx.compose.ui.platform.LocalContext
+import com.pesaflow.app.data.ledger.CategoryMemory
+import com.pesaflow.app.data.ledger.MerchantMemory
+import com.pesaflow.app.data.parsers.SenderCard
+import com.pesaflow.app.data.parsers.groupSenderCards
 import com.pesaflow.app.data.parsers.SmsScanResult
 import com.pesaflow.app.data.parsers.buildDraft
 import com.pesaflow.app.data.parsers.guessSemesterStart
@@ -118,6 +122,8 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
     val appContext = LocalContext.current
     val scanScope = rememberCoroutineScope()
     var scanResult by remember { mutableStateOf<SmsScanResult?>(null) }
+    // One card per unknown sender — name once, all their rows file themselves.
+    var senderCards by remember { mutableStateOf<List<SenderCard>>(emptyList()) }
     var scanProgress by remember { mutableStateOf(0) }
     // Transport-collapse months the detector proposes as break (one-tap confirm).
     var breakPrompt by remember { mutableStateOf<Set<String>?>(null) }
@@ -380,9 +386,9 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                                     scanning = true
                                     scanProgress = 0
                                     val r = withContext(Dispatchers.IO) {
-                                        // 5-month window: rhythms need history; the
-                                        // session filter (at finish) quarantines break.
-                                        scanRecentSms(appContext, 150, 1500, onProgress = { f, _ -> scanProgress = f })
+                                        // First scan is everything: full year, high cap.
+                                        // The session filter (at finish) quarantines break.
+                                        scanRecentSms(appContext, 365, 5000, onProgress = { f, _ -> scanProgress = f })
                                     }
                                     var queued = 0
                                     r.parsed.forEach { if (viewModel.tryQueuePending(it)) queued++ }
@@ -392,6 +398,11 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                                     if (rentGuess.isBlank() && r.monthlyFor("Rent") > 0) { rentGuess = r.monthlyFor("Rent").toInt().toString(); rentFromScan = true }
                                     if (transportDaily.isBlank() && r.monthlyFor("Transport") > 0) { transportDaily = (r.monthlyFor("Transport") / 30).toInt().toString(); transportFromScan = true }
                                     scanResult = r
+                                    // Sender cards: already-named senders never resurface.
+                                    val obPrefs = appContext.getSharedPreferences("pesaflow_prefs", android.content.Context.MODE_PRIVATE)
+                                    senderCards = groupSenderCards(r.parsed) {
+                                        MerchantMemory.lookup(obPrefs, it) != null
+                                    }
                                     // Break proposal: collapsed-transport months surface
                                     // once for confirm-or-keep — never auto-excluded.
                                     val proposed = com.pesaflow.app.data.parsers.detectBreakMonths(
@@ -419,10 +430,33 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                         ) {
                             Column(modifier = Modifier.padding(16.dp)) {
-                                Text("Found " + r.found + " texts, " + r.parsed.size + " readable", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-                                Text("In KSh " + r.incomeTotal.toInt() + ", out KSh " + r.expenseTotal.toInt() + " over 150 days", style = MaterialTheme.typography.bodySmall)
+                                // Honest counts: a hit cap reports as a floor ("1,500+"),
+                                // never a flat census. The window states its own days.
+                                Text(
+                                    if (r.capped) "Found " + r.found + "+ texts (scan cap — oldest skipped), " + r.parsed.size + " readable"
+                                    else "Found " + r.found + " texts, " + r.parsed.size + " readable",
+                                    style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold
+                                )
+                                Text("In KSh " + r.incomeTotal.toInt() + ", out KSh " + r.expenseTotal.toInt() + " over " + r.daysBack + " days", style = MaterialTheme.typography.bodySmall)
                                 Text("Monthly pace about KSh " + r.monthlyExpense.toInt() + ", food about KSh " + r.monthlyFor("Food").toInt(), style = MaterialTheme.typography.bodySmall)
                                 Text(scanQueued.toString() + " queued to pending for Home approval. Placeholders only - edit anything.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        // Sender cards: name each sender once with dates attached
+                        // so you remember — no 700-row confirming.
+                        if (senderCards.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Who are these people? 👥", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                            Text(
+                                "Name each sender once — every one of their rows files itself, past and future.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            senderCards.forEach { card ->
+                                SenderCardRow(
+                                    card = card,
+                                    onSaved = { senderCards = senderCards.filter { it.merchant != card.merchant } }
+                                )
                             }
                         }
                     }
@@ -928,9 +962,68 @@ private fun OpeningRow(emoji: String, title: String, body: String) {    Row(modi
 }
 
 
+// Sender card: all of one sender's transactions with their date span, one
+// name field. Saving teaches the alias (future rows resolve) and the
+// category (future rows auto-classify) — asked exactly once.
 @Composable
-private fun ReviewRow(label: String, value: String, tag: String) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+private fun SenderCardRow(card: SenderCard, onSaved: () -> Unit) {
+    val ctx = LocalContext.current
+    var name by rememberSaveable(card.merchant) { mutableStateOf("") }
+    val fmt = remember { java.text.SimpleDateFormat("d MMM", java.util.Locale.getDefault()) }
+    val span = remember(card) {
+        val a = fmt.format(java.util.Date(card.firstSeen))
+        val b = fmt.format(java.util.Date(card.lastSeen))
+        if (a == b) a else "$a – $b"
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(card.merchant, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Text(
+                card.count.toString() + " transactions · " + span,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            val money = buildList {
+                if (card.expenseTotal > 0) add("out KSh " + card.expenseTotal.toInt())
+                if (card.incomeTotal > 0) add("in KSh " + card.incomeTotal.toInt())
+            }.joinToString(" · ")
+            if (money.isNotEmpty()) Text(money, style = MaterialTheme.typography.bodySmall)
+            Text(
+                "Looks like: " + card.suggestedCategory,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Who is this? (e.g. Mom)") },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true
+                )
+                Button(onClick = {
+                    val prefs = ctx.getSharedPreferences("pesaflow_prefs", android.content.Context.MODE_PRIVATE)
+                    if (MerchantMemory.learnAlias(prefs, card.merchant, name)) {
+                        CategoryMemory.learn(prefs, card.merchant, card.suggestedCategory)
+                        onSaved()
+                    }
+                }) { Text("Save") }
+            }
+        }
+    }
+}
+
+
+@Composable
+private fun ReviewRow(label: String, value: String, tag: String) {    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
         Text(
             "$value · $tag",

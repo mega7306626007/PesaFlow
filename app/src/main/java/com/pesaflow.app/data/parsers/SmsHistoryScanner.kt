@@ -20,7 +20,10 @@ data class SmsScanResult(
     val byCategory: Map<String, Double> = emptyMap(),
     // Window the totals cover — monthly paces divide by months scanned,
     // not a hardcoded 2 (60-day scans lied for every other window).
-    val daysBack: Int = 60
+    val daysBack: Int = 60,
+    // True when the inbox outgrew maxRows: "found" is a floor, not a census.
+    // Callers must say "1,500+" instead of a flat "1,500".
+    val capped: Boolean = false
 ) {
     private val months: Double get() = (daysBack / 30.0).coerceAtLeast(1.0 / 30)
     val monthlyIncome: Double get() = incomeTotal / months
@@ -50,13 +53,15 @@ suspend fun scanRecentSms(
     var found = 0
     var unreadable = 0
     var newestBalance: Double? = null
+    var capped: Boolean
     // Newest-first page order: the first balance tail found is the latest wallet figure.
     try {
         // MPESA/Safaricom first, then telcos, then any KES-denominated body
         // (bank KES texts come from a dozen sender IDs — the body is the net).
         var offset = 0
+        var pageRows = 0
         while (offset < maxRows && !isCancelled()) {
-            var pageRows = 0
+            pageRows = 0
             context.contentResolver.query(
                 Telephony.Sms.Inbox.CONTENT_URI,
                 arrayOf("_id", "address", "body", "date"),
@@ -82,6 +87,8 @@ suspend fun scanRecentSms(
             onProgress(found, parsed.size)
             if (pageRows < pageSize) break
         }
+        // Full last page at the cap means older texts went unscanned.
+        capped = offset >= maxRows && pageRows == pageSize
     } catch (e: SecurityException) {
         return SmsScanResult()
     } catch (e: Exception) {
@@ -98,5 +105,5 @@ suspend fun scanRecentSms(
         else if (p.type == TransactionType.EXPENSE) expense += p.amount
         if (p.type == TransactionType.EXPENSE) cats[p.category] = (cats[p.category] ?: 0.0) + p.amount
     }
-    return SmsScanResult(found, parsed, unreadable, income, expense, cats, daysBack)
+    return SmsScanResult(found, parsed, unreadable, income, expense, cats, daysBack, capped)
 }
