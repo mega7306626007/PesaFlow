@@ -92,13 +92,27 @@ fun QuickAddDialog(
     var showDatePick by remember { mutableStateOf(false) }
     var pickedDate by remember { mutableStateOf<Long?>(null) }
     var inputNotes by remember { mutableStateOf("") }
+    // Smart line: "kibanda 250" fills amount + category (+ backdate words).
+    var smartLine by remember { mutableStateOf("") }
+    // Manual category touch: auto-apply runs until the user picks — then hands off.
+    var categoryTouched by remember { mutableStateOf(existing != null) }
+    fun suggestFor(m: String, type: TransactionType): String? {
+        if (m.isBlank()) return null
+        val prefs = context.getSharedPreferences("pesaflow_prefs", android.content.Context.MODE_PRIVATE)
+        return CategoryMemory.lookup(prefs, m)
+            ?: MpesaParser.inferCategory(m, type).takeIf { it != "Other" }
+    }
     // Repeat + merchant memory: the fastest log is one you barely type.
     val recentTx by viewModel.allTransactions.collectAsState()
     val repeatCandidate = remember(recentTx) { if (existing == null) recentTx.firstOrNull() else null }
-    val recentMerchants = remember(recentTx, inputMerchant) {
-        recentTx.map { it.merchant }.distinct()
-            .filter { it.isNotBlank() && !it.equals(inputMerchant, ignoreCase = true) }
-            .take(3)
+    // Match-as-you-type across every ledger merchant (blank = last 3) —
+    // tapping one fills merchant, usual price AND learned category.
+    val matchMerchants = remember(recentTx, inputMerchant) {
+        val q = inputMerchant.trim()
+        val all = recentTx.map { it.merchant }.distinct().filter { it.isNotBlank() }
+        if (q.isEmpty()) all.take(3)
+        else (all.filter { it.contains(q, ignoreCase = true) && !it.equals(q, ignoreCase = true) } +
+            all.filter { !it.contains(q, ignoreCase = true) }).take(5)
     }
     var selectedMethod by remember {
         val last = context
@@ -196,12 +210,42 @@ fun QuickAddDialog(
         title = { Text(if (existing == null) "Add transaction" else "Edit transaction", fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(PesaSpacing.sm)) {
+                // Smart line: one line in, whole form filled.
+                if (existing == null) {
+                    OutlinedTextField(
+                        value = smartLine,
+                        onValueChange = { smartLine = it },
+                        label = { Text("⚡ Smart line — \"kibanda 250\", \"jana fare 100\"") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    remember(smartLine) { if (smartLine.isBlank()) null else NaturalLanguageParser.parse(smartLine) }?.let { p ->
+                        TextButton(onClick = {
+                            inputAmount = if (p.amount % 1.0 == 0.0) p.amount.toInt().toString() else p.amount.toString()
+                            selectedCategory = p.category
+                            categoryTouched = true
+                            entryMode = when (p.type) {
+                                TransactionType.INCOME -> "Received"
+                                TransactionType.SAVING -> "Saved"
+                                else -> "Spent"
+                            }
+                            // Backdate words ("jana", "juzi") land on their day.
+                            val dayMs = 24L * 60 * 60 * 1000
+                            if (p.dateTimestamp < System.currentTimeMillis() - dayMs / 2) {
+                                pickedDate = p.dateTimestamp
+                                dayOffset = 0
+                            }
+                            smartLine = ""
+                        }) { Text("⚡ ${p.category} · KSh ${p.amount.toInt()} — tap to fill") }
+                    }
+                }
                 // Spent / Received / Saved — smart defaults follow the mode.
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PesaSpacing.xs)) {
                     FilterChip(
                         selected = entryMode == "Spent",
                         onClick = {
                             entryMode = "Spent"
+                            categoryTouched = true
                             if (selectedCategory == "Salary" || selectedCategory == "Savings") selectedCategory = "Food"
                         },
                         label = { Text("− Spent") },
@@ -211,6 +255,7 @@ fun QuickAddDialog(
                         selected = entryMode == "Received",
                         onClick = {
                             entryMode = "Received"
+                            categoryTouched = true
                             if (selectedCategory == "Food" || selectedCategory == "Savings") selectedCategory = "Salary"
                         },
                         label = { Text("+ Received") },
@@ -220,6 +265,7 @@ fun QuickAddDialog(
                         selected = entryMode == "Saved",
                         onClick = {
                             entryMode = "Saved"
+                            categoryTouched = true
                             if (selectedCategory == "Food" || selectedCategory == "Salary") selectedCategory = "Savings"
                         },
                         label = { Text("◉ Saved") },
@@ -321,11 +367,12 @@ fun QuickAddDialog(
                 if (typedMedian != null) {
                     TextButton(onClick = {
                         inputAmount = if (typedMedian % 1.0 == 0.0) typedMedian.toInt().toString() else typedMedian.toString()
+                        if (!categoryTouched) suggestFor(inputMerchant, entryType)?.let { selectedCategory = it }
                     }) { Text("Usual: KSh ${typedMedian.toInt()} — tap to fill") }
                 }
-                if (recentMerchants.isNotEmpty()) {
+                if (matchMerchants.isNotEmpty()) {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(PesaSpacing.xs)) {
-                        recentMerchants.forEach { m ->
+                        matchMerchants.forEach { m ->
                             FilterChip(
                                 selected = false,
                                 onClick = {
@@ -341,6 +388,8 @@ fun QuickAddDialog(
                                             inputAmount = if (med % 1.0 == 0.0) med.toInt().toString() else med.toString()
                                         }
                                     }
+                                    // Learned category applies until you pick one.
+                                    if (!categoryTouched) suggestFor(m, entryType)?.let { selectedCategory = it }
                                 },
                                 label = { Text(m) }
                             )
@@ -393,18 +442,15 @@ fun QuickAddDialog(
                 Text(if (entryMode == "Received") "Source" else "Category", style = MaterialTheme.typography.labelLarge)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(PesaSpacing.xs), verticalArrangement = Arrangement.spacedBy(PesaSpacing.xs)) {
                     (if (entryMode == "Received") QuickIncomeSources else QuickCategories).forEach { c ->
-                        FilterChip(selected = selectedCategory == c, onClick = { selectedCategory = c }, label = { Text(c) })
+                        FilterChip(selected = selectedCategory == c, onClick = { selectedCategory = c; categoryTouched = true }, label = { Text(c) })
                     }
                 }
-                val prefs = context.getSharedPreferences("pesaflow_prefs", android.content.Context.MODE_PRIVATE)
-                val suggestedCat = remember(inputMerchant, entryMode) {
-                    if (inputMerchant.isBlank()) null
-                    else CategoryMemory.lookup(prefs, inputMerchant)
-                        ?: MpesaParser.inferCategory(inputMerchant, entryType).takeIf { it != "Other" }
-                }
-                if (suggestedCat != null && selectedCategory != suggestedCat) {
+                val suggestedCat = remember(inputMerchant, entryMode) { suggestFor(inputMerchant, entryType) }
+                // Hands-off display: untouched forms auto-apply, so this only
+                // appears after a manual pick disagrees with memory.
+                if (categoryTouched && suggestedCat != null && selectedCategory != suggestedCat) {
                     TextButton(onClick = { selectedCategory = suggestedCat }) {
-                        Text("Use suggested: $suggestedCat?")
+                        Text("Memory says: $suggestedCat?")
                     }
                 }
                 Text("Payment method", style = MaterialTheme.typography.labelLarge)
