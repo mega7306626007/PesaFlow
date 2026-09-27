@@ -32,7 +32,6 @@ import com.pesaflow.app.data.models.UniversityProfile
 import com.pesaflow.app.data.income.IncomeSource
 import com.pesaflow.app.data.income.IncomeSourceStore
 import com.pesaflow.app.data.notifications.ReminderScheduler
-import com.pesaflow.app.ui.income.IncomeSetupBlock
 import com.pesaflow.app.ui.language.Copy4
 import com.pesaflow.app.viewmodels.FinanceViewModel
 import androidx.compose.ui.platform.LocalContext
@@ -40,6 +39,8 @@ import com.pesaflow.app.data.ledger.CategoryMemory
 import com.pesaflow.app.data.ledger.MerchantMemory
 import com.pesaflow.app.data.ledger.saveContactMemory
 import com.pesaflow.app.data.ledger.suggestMemory
+import com.pesaflow.app.data.meals.rentHintFor
+import com.pesaflow.app.data.meals.spotsFor
 import com.pesaflow.app.data.parsers.SenderCard
 import com.pesaflow.app.data.parsers.groupSenderCards
 import com.pesaflow.app.data.parsers.SmsScanResult
@@ -47,6 +48,7 @@ import com.pesaflow.app.data.parsers.buildDraft
 import com.pesaflow.app.data.parsers.guessSemesterStart
 import com.pesaflow.app.data.parsers.monthKey
 import com.pesaflow.app.data.parsers.LedgerRow
+import com.pesaflow.app.data.parsers.deduceFare
 import com.pesaflow.app.data.parsers.Regime
 import com.pesaflow.app.data.parsers.resolveCalendar
 import com.pesaflow.app.data.parsers.scanRecentSms
@@ -64,7 +66,7 @@ private const val DAY_MS = 24L * 60 * 60 * 1000
 fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
     // Mid-onboarding process death resumes where you left off, not at step 0.
     val bootPrefs = LocalContext.current.getSharedPreferences("pesaflow_prefs", android.content.Context.MODE_PRIVATE)
-    var step by rememberSaveable { mutableStateOf(bootPrefs.getInt("onboarding_step", 0).coerceIn(0, 5)) }
+    var step by rememberSaveable { mutableStateOf(bootPrefs.getInt("onboarding_step", 0).coerceIn(0, 4)) }
     // Celebration beats the handoff: seeded → check + stars → home.
     var celebrate by rememberSaveable { mutableStateOf(false) }
     var welcomed by rememberSaveable { mutableStateOf(bootPrefs.getBoolean("onboarding_welcomed", false)) }
@@ -125,6 +127,10 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
     var scanResult by remember { mutableStateOf<SmsScanResult?>(null) }
     // One card per unknown sender — name once, all their rows file themselves.
     var senderCards by remember { mutableStateOf<List<SenderCard>>(emptyList()) }
+    // Fare proposal: same ~7–9am amount across mornings reads as the daily
+    // fare — hostel walkers never see it.
+    var fareProposal by remember { mutableStateOf<com.pesaflow.app.data.parsers.Deduction?>(null) }
+    var fareDismissed by rememberSaveable { mutableStateOf(false) }
     var autoFacesOb by remember {
         mutableStateOf(
             appContext.getSharedPreferences("pesaflow_prefs", android.content.Context.MODE_PRIVATE)
@@ -180,30 +186,30 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
         ) {
             Spacer(modifier = Modifier.height(8.dp))
             LinearProgressIndicator(
-                progress = { (step + 1) / 6f },
+                progress = { (step + 1) / 5f },
                 modifier = Modifier.fillMaxWidth(),
                 color = MaterialTheme.colorScheme.primary,
                 trackColor = MaterialTheme.colorScheme.surfaceVariant
             )
             Text(
                 when (step) {
-                    0 -> "Step 1 of 6 · Who are you?"
-                    1 -> "Step 2 of 6 · Auto-tracking"
-                    2 -> "Step 3 of 6 · Semester money"
-                    3 -> "Step 4 of 6 · Income setup"
-                    4 -> "Step 5 of 6 · Tell us about you"
-                    else -> "Step 6 of 6 · Review & start"
+                    0 -> "Step 1 of 5 · Who are you?"
+                    1 -> "Step 2 of 5 · Auto-tracking"
+                    2 -> "Step 3 of 5 · Semester money"
+                    3 -> "Step 4 of 5 · Tell us about you"
+                    else -> "Step 5 of 5 · Review & start"
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             // Scan-first order: SMS auto-tracking lands on step 2 (the magic
-            // moment — their own data populates the app), the questionnaire
-            // moves to step 5. Finish logic is order-independent.
+            // moment — their own data populates the app). Income setup was
+            // dropped: scan + upkeep/HELB carry it. Finish is order-independent.
             val page = when (step) {
                 1 -> 4
-                4 -> 1
+                3 -> 1
+                4 -> 5
                 else -> step
             }
             when (page) {
@@ -226,6 +232,39 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                         }
                     }
                     OutlinedTextField(value = university, onValueChange = { university = it }, label = { Text("University / campus (e.g. UoN Main)") }, modifier = Modifier.fillMaxWidth())
+                    // Campus food map (main format, our data): where to eat,
+                    // what plate, what price — planner-ready below.
+                    if (university.isNotBlank()) {
+                        val foodSpots = remember(university) { spotsFor(university.trim()).take(4) }
+                        if (foodSpots.isNotEmpty()) {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Text(
+                                        "Eating near ${university.trim()} 🍽️",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    foodSpots.forEach { s ->
+                                        Text(
+                                            "${s.spot} · ${s.item} — ~KSh ${s.price.toInt()}" + if (!s.verified) " (typical)" else "",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Text(
+                                        "Student prices — confirm on the ground, then the meal planner uses them.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+                    }
                     OutlinedTextField(value = semester, onValueChange = { semester = it }, label = { Text("Current semester") }, modifier = Modifier.fillMaxWidth())
                 }
                 1 -> {
@@ -236,11 +275,14 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    OutlinedTextField(value = sponsorMonthly, onValueChange = { sponsorMonthly = it }, label = { Text("1 · Monthly upkeep from home? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                    // Continuous numbering (main format): hidden boxes never leave
+                    // gaps — the count follows what you actually see.
+                    var qi = 0
+                    OutlinedTextField(value = sponsorMonthly, onValueChange = { sponsorMonthly = it }, label = { Text("${++qi} · Monthly upkeep from home? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
                     Text("→ lands as ledger income + a sponsor source you can track.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("Where do you stay? 🏠", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("Parents", "Hostel", "Rented").forEach { h ->
+                        listOf("Parents", "Hostel", "Shared", "Alone").forEach { h ->
                             FilterChip(
                                 selected = homeKind == h,
                                 onClick = { homeKind = h },
@@ -250,11 +292,11 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                     }
                     Text("Daily trip to campus?", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("Near", "Far").forEach { c ->
+                        listOf("Walk", "Near", "Far").forEach { c ->
                             FilterChip(
                                 selected = commuteLen == c,
                                 onClick = { commuteLen = c },
-                                label = { Text(if (c == "Far") "Far daily" else "Near / walk") }
+                                label = { Text(if (c == "Far") "Far daily" else if (c == "Near") "Near hop" else "Walk") }
                             )
                         }
                     }
@@ -278,14 +320,17 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                     )
                     // Ask-only-what-matters: parents' roof means no rent box.
                     if (homeKind != "Parents") {
-                        OutlinedTextField(value = rentGuess, onValueChange = { rentGuess = it }, label = { Text("2 · Rent/hostel per month? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(value = rentGuess, onValueChange = { rentGuess = it }, label = { Text("${++qi} · Rent/hostel per month? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
                         Text("→ your Rent budget + Bills watch.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        rentHintFor(university)?.let { hint ->
+                            Text("Near ${university.trim()}: $hint.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                        }
                     }
-                    OutlinedTextField(value = transportDaily, onValueChange = { transportDaily = it }, label = { Text("3 · Transport per day? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = transportDaily, onValueChange = { transportDaily = it }, label = { Text("${++qi} · Transport per day? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
                     Text("→ Transport budget (×30) + commuter weight in the calculator.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    OutlinedTextField(value = airtimeWeekly, onValueChange = { airtimeWeekly = it }, label = { Text("4 · Airtime + data per week? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = airtimeWeekly, onValueChange = { airtimeWeekly = it }, label = { Text("${++qi} · Airtime + data per week? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
                     Text("→ your Airtime budget (×4).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    OutlinedTextField(value = saveTarget, onValueChange = { saveTarget = it }, label = { Text("5 · Want to save monthly? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = saveTarget, onValueChange = { saveTarget = it }, label = { Text("${++qi} · Want to save monthly? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
                     Text("→ creates your Monthly savings goal with a daily pace.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 2 -> {
@@ -322,16 +367,9 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                         Text("Semester ends: ${java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.getDefault()).format(java.util.Date(endMillis))}")
                     }
                 }
-                3 -> {
-                    StepArt(R.drawable.ob_income)
-                    Text("Where does money come from? 💰", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text(
-                        "HELB, parents, hustle, job — declare each. HELB on M-Pesa? Fine, I'll parse SMS to see the amounts. Bank? Tell me which bank and the likely dates — not sure? You'll input manually, no stress.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    IncomeSetupBlock(viewModel = viewModel, highlightSelfSponsored = fundSource == "SELF")
-                }
+                // Income setup used to interrogate here — dropped. Income arrives
+                // from the scan + upkeep/HELB figures; jobs get declared later
+                // under More → Income. Welcome screens collect, never grill.
                 4 -> {
                     StepArt(R.drawable.ob_sms)
                     Text("Track spending automatically ⚡", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -345,7 +383,7 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                     ) { Text(if (smsGranted) "Enabled ✓" else "Enable SMS detection", color = MaterialTheme.colorScheme.onPrimary) }
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text("First-run check: last 60 days", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Text("First-run check: full year", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                     Text(
                         "Reads your M-Pesa texts into pending approvals and uses the totals as editable starting figures. Nothing enters your books unverified.",
                         style = MaterialTheme.typography.bodySmall,
@@ -360,6 +398,8 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                                 scanScope.launch {
                                     scanning = true
                                     scanProgress = 0
+                                    fareProposal = null
+                                    fareDismissed = false
                                     val r = withContext(Dispatchers.IO) {
                                         // First scan is everything: full year, high cap.
                                         // The session filter (at finish) quarantines break.
@@ -384,6 +424,18 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                                         com.pesaflow.app.data.parsers.monthlyTransportSeries(r.parsed)
                                     )
                                     if (proposed.isNotEmpty()) breakPrompt = proposed
+                                    // Fare rhythm proposal — commuters only. Same
+                                    // morning amount ± band across class mornings
+                                    // reads as the daily fare: confirm once and
+                                    // the Transport box fills itself.
+                                    fareProposal = if (homeKind == "Hostel" && commuteLen == "Walk") null
+                                    else deduceFare(
+                                        r.parsed.map { LedgerRow(it.amount, it.type, it.category, it.merchant, it.dateTimestamp) }
+                                    ) { ts ->
+                                        val d = java.util.Calendar.getInstance().apply { timeInMillis = ts }
+                                            .get(java.util.Calendar.DAY_OF_WEEK)
+                                        d in java.util.Calendar.MONDAY..java.util.Calendar.FRIDAY
+                                    }?.takeIf { it.confidence >= 0.7 }
                                     // Harvest the newest wallet balance for display everywhere.
                                     r.parsed.firstOrNull()?.rawText?.let { raw ->
                                         com.pesaflow.app.data.parsers.parseBalance(raw)?.let { bal ->
@@ -424,6 +476,37 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                                 )
                                 Text("Monthly pace about KSh " + r.monthlyExpense.toInt() + ", food about KSh " + r.monthlyFor("Food").toInt(), style = MaterialTheme.typography.bodySmall)
                                 Text(scanQueued.toString() + " queued to pending for Home approval. Placeholders only - edit anything.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        // Fare proposal (commuters only): same ~7–9am amount
+                        // across class mornings. One tap fills Transport and
+                        // melts a pile of unsure rows into sure ones.
+                        fareProposal?.let { fare ->
+                            if (!fareDismissed) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(20.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                                ) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        Text("Same morning fare? 🚌", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                        Text(
+                                            "KSh ${fare.amount.toInt()} around 7–9am (${fare.evidence}). Peak hikes wobble the band — confirm the usual and Transport fills itself.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Button(onClick = {
+                                                transportDaily = ((fare.amount * 22) / 30).toInt().toString()
+                                                transportFromScan = true
+                                                fareDismissed = true
+                                            }) { Text("Yes, ~KSh ${(fare.amount * 2).toInt()}/day") }
+                                            TextButton(onClick = { fareDismissed = true }) { Text("Not mine") }
+                                        }
+                                    }
+                                }
                             }
                         }
                         // Sender cards: name each sender once with dates attached
@@ -531,7 +614,7 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                             )
                             ReviewRow("Reports", "Night · Sunday · Daily", "auto-armed")
                             val revPersona = com.pesaflow.app.ui.budgets.parsePersona(
-                                "home=" + homeKind.uppercase() + "|commute=" + commuteLen.uppercase() + "|cooking=" + if (cooksFood == "Yes") "YES" else "NO"
+                                "home=" + when (homeKind) { "Parents" -> "PARENTS"; "Hostel" -> "HOSTEL"; else -> "RENTAL" } + "|commute=" + commuteLen.uppercase() + "|cooking=" + if (cooksFood == "Yes") "YES" else "NO"
                             )
                             val effPersona = personaOverride.takeIf { it.isNotBlank() }?.let {
                                 com.pesaflow.app.ui.budgets.Persona.valueOf(it)
@@ -607,7 +690,7 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                 TextButton(onClick = { if (step > 0) step-- }, enabled = step > 0) { Text("Back") }
                 Button(
                     onClick = {
-                        if (step < 5) {
+                        if (step < 4) {
                             step++
                         } else {
                             val now = System.currentTimeMillis()
@@ -652,11 +735,11 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                             // run. Observation may only suggest changes later.
                             viewModel.saveFinancialProfile(
                                 com.pesaflow.app.data.models.FinancialProfile(
-                                    housing = when {
-                                        homeKind.contains("parent", ignoreCase = true) -> "PARENTS"
-                                        homeKind.contains("rent", ignoreCase = true) -> "RENTAL"
-                                        homeKind.contains("hostel", ignoreCase = true) -> "HOSTEL"
-                                        else -> "HOSTEL"
+                                    housing = when (homeKind) {
+                                        "Parents" -> "PARENTS"
+                                        "Hostel" -> "HOSTEL"
+                                        "Shared" -> "SHARED_RENT"
+                                        else -> "RENTAL"
                                     },
                                     commute = when {
                                         commuteLen.contains("far", ignoreCase = true) -> "LONG"
@@ -767,6 +850,13 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                                 pocket.toDoubleOrNull() ?: 0.0,
                                 upkeep
                             )
+                            // Persona setup code: shared rentals read as rentals (they pay
+                            // rent), solo places too — only Parents/Hostel differ.
+                            val homeCode = when (homeKind) {
+                                "Parents" -> "PARENTS"
+                                "Hostel" -> "HOSTEL"
+                                else -> "RENTAL"
+                            }
                             viewModel.saveOnboardingAnswers(
                                 // Only keys with live readers survive here. BudgetsScreen
                                 // cold-start reads rent/transport/airtime; MealPlanner
@@ -776,11 +866,11 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                                 "rent=$rentGuess|transport=$transportDaily" +
                                     "|airtime=$airtimeWeekly" +
                                     "|living=" + if (commuteLen == "Far" && homeKind != "Parents") "COMMUTER" else "HOSTEL" +
-                                    "|home=" + homeKind.uppercase() +
+                                    "|home=" + homeCode +
                                     "|commute=" + commuteLen.uppercase() +
                                     "|cooking=" + if (cooksFood == "Yes") "YES" else "NO" +
                                     "|persona=" + (personaOverride.takeIf { it.isNotBlank() } ?: com.pesaflow.app.ui.budgets.parsePersona(
-                                        "home=" + homeKind.uppercase() + "|commute=" + commuteLen.uppercase() + "|cooking=" + if (cooksFood == "Yes") "YES" else "NO"
+                                        "home=" + homeCode + "|commute=" + commuteLen.uppercase() + "|cooking=" + if (cooksFood == "Yes") "YES" else "NO"
                                     ).name) +
                                     (scanResult?.let { s -> "|scan_food=" + s.monthlyFor("Food").toInt() } ?: "")
                             )
@@ -789,7 +879,7 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                     },
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary)
-                ) { Text(if (step < 5) "Next" else "Start Tracking 💰", fontWeight = FontWeight.Bold) }
+                ) { Text(if (step < 4) "Next" else "Start Tracking 💰", fontWeight = FontWeight.Bold) }
             }
             Spacer(modifier = Modifier.height(24.dp))
         }
@@ -889,10 +979,10 @@ private fun GrandOpening(onBegin: () -> Unit, onSkip: () -> Unit) {
                 Spacer(modifier = Modifier.height(20.dp))
                 Text(
                     t(
-                        "Next: 4 quick steps — you, your life, semester money, auto-tracking. ~2 minutes. Skip anything.",
-                        "Ifuatayo: hatua 4 rahisi — wewe, maisha, pesa za muhula, auto-tracking. Dakika 2. Ruka chochote.",
-                        "Next: steps 4 fasta — wewe, life, mullah ya sem, auto-track. 2 mins. Skip chochote.",
-                        "Next: steps 4 quick — wewe, life, pesa za sem, auto-tracking. 2 mins. Skip anything."
+                        "Next: 5 quick steps — you + living, auto-tracking, semester money, about you. ~2 minutes. Skip anything.",
+                        "Ifuatayo: hatua 5 rahisi — wewe + makazi, auto-tracking, pesa za muhula, kukuhusu. Dakika 2. Ruka chochote.",
+                        "Next: steps 5 fasta — wewe + place, auto-track, mullah ya sem, about you. 2 mins. Skip chochote.",
+                        "Next: steps 5 quick — wewe + living, auto-tracking, pesa za sem, about you. 2 mins. Skip anything."
                     ),
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.White.copy(alpha = 0.75f)

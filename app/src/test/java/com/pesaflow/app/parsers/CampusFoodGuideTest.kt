@@ -1,5 +1,6 @@
 package com.pesaflow.app.parsers
 
+import com.pesaflow.app.data.meals.rentHintFor
 import com.pesaflow.app.data.meals.spotsFor
 import org.junit.Assert.*
 import org.junit.Test
@@ -35,7 +36,7 @@ class CampusFoodGuideTest {
 
     @Test
     fun `unknown or blank school yields no pack`() {
-        assertTrue(spotsFor("Strathmore").isEmpty())
+        assertTrue(spotsFor("Oxford").isEmpty())
         assertTrue(spotsFor("").isEmpty())
         assertTrue(spotsFor("   ").isEmpty())
     }
@@ -51,5 +52,36 @@ class CampusFoodGuideTest {
                 assertTrue(it.mealType in setOf("Breakfast", "Lunch", "Supper", "Snack"))
             }
         }
+    }
+
+    @Test
+    fun `coverage is extensive across the country`() {
+        val unis = listOf(
+            "Moi Eldoret", "Masinde Muliro Kakamega", "Kisii University",
+            "Strathmore Madaraka", "Daystar Athi River", "USIU Kasarani",
+            "Catholic Karen", "TUK Ngara", "Kabarak Nakuru", "MKU Thika",
+            "Dedan Kimathi Nyeri", "Meru University", "Embu", "Chuka",
+            "Laikipia Nyahururu", "Maasai Mara Narok", "Pwani Kilifi",
+            "Kibabii Bungoma", "Machakos University", "Garissa", "Rongo",
+            "KCA Roysambu", "Multimedia Rongai", "Zetech Ruiru",
+            "Karatina", "Muranga", "Taita Taveta Voi", "TUM Mombasa"
+        )
+        unis.forEach { assertTrue("$it should resolve", spotsFor(it).isNotEmpty()) }
+        assertTrue(spotsFor("Oxford").isEmpty())
+    }
+
+    @Test
+    fun `rent hints carry researched bands`() {
+        val ku = rentHintFor("Kenyatta University")
+        assertNotNull(ku)
+        assertTrue(ku!!.contains("5-8k"))
+        val maseno = rentHintFor("Maseno")
+        assertNotNull(maseno)
+        assertTrue(maseno!!.contains("3k"))
+        val strath = rentHintFor("Strathmore")
+        assertNotNull(strath)
+        assertTrue(strath!!.contains("13-50k"))
+        assertNull(rentHintFor("Oxford"))
+        assertNull(rentHintFor(""))
     }
 }
