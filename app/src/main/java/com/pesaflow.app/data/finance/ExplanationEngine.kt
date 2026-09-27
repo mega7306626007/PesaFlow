@@ -16,11 +16,11 @@ fun explainSafeToday(
     label = "Safe to spend today",
     headline = headline,
     horizon = "today",
-    why = "Liquid money minus what is already committed, today's share of essentials and a safety buffer.",
+    why = "Liquid money minus what is already committed, today's share of your usual spending and a safety buffer sized by income assurance.",
     contributors = listOf(
         "Held ${MoneyFormatter.compact(liquid)}",
         "Committed ${MoneyFormatter.compact(committed)}",
-        "Essentials today ≈ ${MoneyFormatter.compact(Money.of(essentialDaily))}",
+        "Usual day ≈ ${MoneyFormatter.compact(Money.of(essentialDaily))}",
         "Buffer ${MoneyFormatter.compact(buffer)}"
     ),
     basis = basis,

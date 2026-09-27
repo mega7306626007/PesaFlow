@@ -1,5 +1,6 @@
 package com.pesaflow.app.data.finance
 
+import com.pesaflow.app.data.models.BudgetType
 import com.pesaflow.app.data.models.PaymentMethod
 import com.pesaflow.app.data.models.Transaction
 import com.pesaflow.app.data.models.TransactionType
@@ -229,21 +230,23 @@ fun buildSnapshot(input: SnapshotInput): FinancialSnapshot {
         .filter { it.reliability == Reliability.CONFIRMED || it.reliability == Reliability.LIKELY }
         .fold(Money.ZERO) { acc, r -> acc + r.expectedMonthly }
 
-    // Essential baselines (§17): median daily over 30d on active days —
-    // one KSh 25,000 phone cannot move median. Shorter window than 90 so
-    // "essentials today" follows recent spending rather than a quarterly average.
-    val essentialCats = setOf("Food", "Transport", "Rent", "Airtime", "Data", "Health", "School")
-    fun medianDaily(cat: String, windowDays: Long = 30): Double {
-        val since = now - windowDays * DAY_MS
-        val byDay = flows.filter {
-            it.type == TransactionType.EXPENSE && it.category.equals(cat, ignoreCase = true) &&
-                it.dateTimestamp >= since
-        }.groupBy { it.dateTimestamp / DAY_MS }.mapValues { (_, l) -> l.sumOf { it.amount } }
-        if (byDay.isEmpty()) return 0.0
-        val med = median(byDay.values.toList())
-        return median(byDay.values.filter { it <= med * 10 })
+    // Daily needs (§17 rewritten): YOUR burn first, YOUR word second, zero
+    // invention third. burn = robust 28-day median of your own daily spend
+    // (one-offs quarantined — one phone can't move it). declaredDaily = your
+    // stated monthly envelopes / 30 (ALL master wins when set, else category
+    // sum). needsDaily = the bigger of the two, so an 800/day life and a
+    // 200/day life each get honest math — no fixed "truths" about what a day
+    // should cost. Cold start (no habit, no statement): needs 0 and quality
+    // says SPARSE instead of inventing a number.
+    val paces = dailyPaces(flows, now)
+    val burn = paces.typical
+    val monthlyBudgets = input.budgets.filter { it.type == BudgetType.MONTHLY && it.limitAmount > 0 }
+    val declaredDaily = run {
+        val master = monthlyBudgets.firstOrNull { it.category.equals("ALL", ignoreCase = true) }?.limitAmount
+        if (master != null && master > 0) master / 30.0
+        else monthlyBudgets.sumOf { it.limitAmount } / 30.0
     }
-    val essentialDaily = essentialCats.sumOf { medianDaily(it) }
+    val needsDaily = maxOf(burn, declaredDaily)
 
     // Horizons (§11, §26): each figure states its own window. Primary horizon
     // follows the income pattern: salary → next income, HELB → semester-aware
@@ -262,15 +265,33 @@ fun buildSnapshot(input: SnapshotInput): FinancialSnapshot {
         !hasSteady -> Horizon.WEEK
         else -> Horizon.MONTH
     }
-    val bufferRate = when (input.profile.risk) {
-        RiskPreference.CONSERVATIVE -> 0.10
-        RiskPreference.FLEXIBLE -> 0.02
-        else -> 0.05
+    // Assurance-priced buffer (§14): the buffer buys days of YOUR burn, sized
+    // by how assured income is. assurance = confirmed share of expected
+    // monthly income. Fully assured salary → 1 shelter day; nothing assured →
+    // 7. Long commutes (+2: fares can't flex) and conservative stomachs (+2)
+    // widen it; flexible shrinks it (−1, min 0). Policy knobs, disclosed —
+    // the point is the buffer derives from your income profile, never a flat %.
+    val assurance = run {
+        val assured = reliableMonthly.toDouble()
+        val expected = expectedMonthly.toDouble()
+        when {
+            expected > 0 -> (assured / expected).coerceIn(0.0, 1.0)
+            assured > 0 -> 1.0
+            else -> 0.0
+        }
     }
-    val riskBuffer = liquid * bufferRate
+    var bufferDays = 1 + 6 * (1 - assurance)
+    if (input.profile.commute == Commute.LONG) bufferDays += 2
+    when (input.profile.risk) {
+        RiskPreference.CONSERVATIVE -> bufferDays += 2
+        RiskPreference.FLEXIBLE -> bufferDays -= 1
+        else -> Unit
+    }
+    bufferDays = bufferDays.coerceAtLeast(0.0)
+    val riskBuffer = Money.of(needsDaily * bufferDays)
     fun horizonValue(days: Int, incomeAhead: Money, obligs: List<ObligationView>): Money {
         val due = obligs.filter { it.dueInDays <= days }.fold(Money.ZERO) { acc, o -> acc + o.remaining }
-        return (liquid + incomeAhead - due - reserved - Money.of(essentialDaily * days) - riskBuffer)
+        return (liquid + incomeAhead - due - reserved - Money.of(needsDaily * days) - riskBuffer)
             .coerceAtLeast(Money.ZERO)
     }
     val monthDaysLeft = daysLeftInMonth(now)
@@ -284,7 +305,6 @@ fun buildSnapshot(input: SnapshotInput): FinancialSnapshot {
     // Forecast scenarios (§19, Phase 9 engine): robust daily paces, one-offs
     // quarantined. Output is month-end FLEXIBLE money.
     val billsDue = obligations.filter { it.dueInDays <= monthDaysLeft }.fold(Money.ZERO) { acc, o -> acc + o.remaining }
-    val paces = dailyPaces(flows, now)
     val paceTypical = paces.typical
     val forecast = ForecastRange(
         cautious = projectMonthEnd(flexible, paces.cautious, reliableMonthly * (monthDaysLeft / 30.0), billsDue, monthDaysLeft),
@@ -294,7 +314,7 @@ fun buildSnapshot(input: SnapshotInput): FinancialSnapshot {
 
     val explanations = mapOf(
         "safeToday" to explainSafeToday(
-            safeToday, liquid, committed, essentialDaily, riskBuffer,
+            safeToday, liquid, committed, needsDaily, riskBuffer,
             "${real.size} ledger rows over ~$spanDays days", quality
         ),
         "flexible" to explainFlexible(
@@ -321,7 +341,7 @@ fun buildSnapshot(input: SnapshotInput): FinancialSnapshot {
         primaryHorizon = primaryHorizon,
         reliableIncomeAhead = reliableMonthly,
         expectedIncomeAhead = expectedMonthly,
-        essentialAhead = Money.of(essentialDaily * 30),
+        essentialAhead = Money.of(needsDaily * 30),
         obligations = obligations,
         upcomingBillsTotal = upcomingBillsTotal,
         upcomingDebtTotal = upcomingDebtTotal,

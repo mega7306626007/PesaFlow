@@ -15,6 +15,8 @@ import com.pesaflow.app.data.finance.SnapshotInput
 import com.pesaflow.app.data.finance.buildSnapshot
 import com.pesaflow.app.data.income.IncomeSource
 import com.pesaflow.app.data.models.Bill
+import com.pesaflow.app.data.models.Budget
+import com.pesaflow.app.data.models.BudgetType
 import com.pesaflow.app.data.models.Debt
 import com.pesaflow.app.data.models.PaymentMethod
 import com.pesaflow.app.data.models.SavingsGoal
@@ -53,9 +55,10 @@ class FinancialEngineTest {
         debts: List<Debt> = emptyList(),
         goals: List<SavingsGoal> = emptyList(),
         sources: List<IncomeSource> = emptyList(),
-        profile: ProfileSignals = ProfileSignals()
+        profile: ProfileSignals = ProfileSignals(),
+        budgets: List<Budget> = emptyList()
     ) = SnapshotInput(
-        txs = txs, bills = bills, debts = debts, goals = goals,
+        txs = txs, budgets = budgets, bills = bills, debts = debts, goals = goals,
         incomeSources = sources, profile = profile
     )
 
@@ -248,12 +251,18 @@ class FinancialEngineTest {
         assertTrue(s.accounts.getValue(Account.BANK) > Money.ZERO)
     }
 
-    // §17 — a KSh 25,000 phone cannot move the food baseline.
+    // §17 — a KSh 25,000 phone cannot move an established baseline. Twenty
+    // calm days quarantine the shock; a one-day history is fragile by nature
+    // (any median of one value moves), so the guarantee is pinned on history.
     @Test
     fun `one off purchase cannot distort baselines`() {
-        val calm = buildSnapshot(base())
+        val day = 24L * 60 * 60 * 1000
+        val now = System.currentTimeMillis()
+        val calmTxs = (1..20).map { tx(225.0, TransactionType.EXPENSE, "Food", ts = now - it * day) } +
+            tx(20000.0, TransactionType.INCOME, "Salary", "Employer", PaymentMethod.BANK_TRANSFER)
+        val calm = buildSnapshot(base(txs = calmTxs))
         val shock = buildSnapshot(
-            base(txs = base().txs + tx(25000.0, TransactionType.EXPENSE, "Shopping", "Phone shop"))
+            base(txs = calmTxs + tx(25000.0, TransactionType.EXPENSE, "Shopping", "Phone shop"))
         )
         assertEquals(calm.essentialAhead, shock.essentialAhead)
     }
