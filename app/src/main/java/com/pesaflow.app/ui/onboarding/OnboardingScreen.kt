@@ -359,9 +359,9 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                                     scanResult = r
                                     // Sender cards: already-named senders never resurface.
                                     val obPrefs = appContext.getSharedPreferences("pesaflow_prefs", android.content.Context.MODE_PRIVATE)
-                                    senderCards = groupSenderCards(r.parsed) {
+                                    senderCards = groupSenderCards(r.parsed, isNamed = {
                                         MerchantMemory.lookup(obPrefs, it) != null
-                                    }
+                                    })
                                     // Break proposal: collapsed-transport months surface
                                     // once for confirm-or-keep — never auto-excluded.
                                     val proposed = com.pesaflow.app.data.parsers.detectBreakMonths(
@@ -407,7 +407,7 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                             Spacer(modifier = Modifier.height(8.dp))
                             Text("Who are these people? 👥", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                             Text(
-                                "Name each sender once — every one of their rows files itself, past and future.",
+                                "Only frequent senders (16+ transactions) ask — one-offs file silently. Name each once and every row files itself, past and future.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

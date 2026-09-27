@@ -30,7 +30,7 @@ class SenderCardsTest {
             tx("Nancy", 1000.0, TransactionType.INCOME, 9),
             tx("Kevin", 50.0, TransactionType.EXPENSE, 2)
         )
-        val cards = groupSenderCards(rows)
+        val cards = groupSenderCards(rows, minTransactions = 0)
         assertEquals(2, cards.size)
         assertEquals("Nancy", cards[0].merchant)
         assertEquals(3, cards[0].count)
@@ -48,14 +48,14 @@ class SenderCardsTest {
             tx("Nancy", 150.0, TransactionType.EXPENSE, 2, "Food"),
             tx("Nancy", 80.0, TransactionType.EXPENSE, 3, "Airtime")
         )
-        assertEquals("Food", groupSenderCards(rows)[0].suggestedCategory)
+        assertEquals("Food", groupSenderCards(rows, minTransactions = 0)[0].suggestedCategory)
     }
 
     @Test
     fun `named senders never surface`() {
         val rows = listOf(tx("Nancy", 200.0, TransactionType.EXPENSE, 1))
-        assertTrue(groupSenderCards(rows) { it.equals("nancy", true) }.isEmpty())
-        assertEquals(1, groupSenderCards(rows).size)
+        assertTrue(groupSenderCards(rows, { it.equals("nancy", true) }, minTransactions = 0).isEmpty())
+        assertEquals(1, groupSenderCards(rows, minTransactions = 0).size)
     }
 
     @Test
@@ -73,5 +73,16 @@ class SenderCardsTest {
     @Test
     fun `empty scan yields no cards`() {
         assertTrue(groupSenderCards(emptyList()).isEmpty())
+    }
+
+    @Test
+    fun `only senders above sixteen transactions surface`() {
+        val quiet = (1..16).map { tx("Quiet", 100.0, TransactionType.EXPENSE, it.toLong()) }
+        assertTrue(groupSenderCards(quiet).isEmpty())
+        val busy = (1..17).map { tx("Busy", 100.0, TransactionType.EXPENSE, it.toLong()) }
+        val cards = groupSenderCards(quiet + busy)
+        assertEquals(1, cards.size)
+        assertEquals("Busy", cards[0].merchant)
+        assertEquals(17, cards[0].count)
     }
 }
