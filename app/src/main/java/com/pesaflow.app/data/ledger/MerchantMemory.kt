@@ -21,8 +21,11 @@ object MerchantMemory {
     fun lookup(prefs: SharedPreferences, merchant: String): Alias? {
         val want = keyOf(merchant)
         if (want.isEmpty()) return null
-        val label = read(prefs)[want] ?: return null
-        return if (label.isBlank()) null else Alias(label)
+        // Legacy single map first, then the triple store — nothing learned
+        // before is ever lost.
+        read(prefs)[want]?.let { if (it.isNotBlank()) return Alias(it) }
+        return prefs.getString(contactLabelKey(merchant), null)
+            ?.takeIf { it.isNotBlank() }?.let { Alias(it) }
     }
 
     /** Names a sender. Returns false when there is nothing to save. */

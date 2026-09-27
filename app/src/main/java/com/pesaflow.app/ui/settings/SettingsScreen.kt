@@ -189,6 +189,7 @@ fun SettingsScreen(viewModel: FinanceViewModel) {
         }
     }
     var autoApprove by remember { mutableStateOf(prefs.getBoolean("auto_approve_mpesa", false)) }
+    var autoFaces by remember { mutableStateOf(prefs.getBoolean("auto_confirm_faces", false)) }
     var notifGranted by remember { mutableStateOf(hasNotifPermission(context)) }
     var notifAsked by remember { mutableStateOf(false) }
     val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -671,6 +672,22 @@ fun SettingsScreen(viewModel: FinanceViewModel) {
                             Switch(checked = autoApprove, onCheckedChange = {
                                 autoApprove = it
                                 prefs.edit().putBoolean("auto_approve_mpesa", it).apply()
+                            })
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Auto-confirm familiar faces 🤝", style = MaterialTheme.typography.bodySmall)
+                                Text(
+                                    if (autoFaces) "ON — remembered people with a usual category skip Pending."
+                                    else "Off — even remembered faces wait for your tap.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(checked = autoFaces, onCheckedChange = {
+                                autoFaces = it
+                                prefs.edit().putBoolean("auto_confirm_faces", it).apply()
                             })
                         }
                     }

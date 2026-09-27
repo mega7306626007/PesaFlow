@@ -4,9 +4,8 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.provider.Telephony
 import androidx.core.content.ContextCompat
-import com.pesaflow.app.data.ledger.CategoryMemory
-import com.pesaflow.app.data.ledger.MerchantMemory
-import com.pesaflow.app.data.ledger.resolveIdentities
+import com.pesaflow.app.data.ledger.applyContactMemory
+import com.pesaflow.app.data.ledger.readContactMemories
 import com.pesaflow.app.data.models.PendingTransaction
 import com.pesaflow.app.data.models.TransactionType
 
@@ -26,11 +25,15 @@ data class SmsScanResult(
     val daysBack: Int = 60,
     // True when the inbox outgrew maxRows: "found" is a floor, not a census.
     // Callers must say "1,500+" instead of a flat "1,500".
-    val capped: Boolean = false
+    val capped: Boolean = false,
+    // Honest report card: volume by month, loudest senders, read rate.
+    val byMonth: Map<String, Int> = emptyMap(),
+    val topSenders: List<Pair<String, Int>> = emptyList()
 ) {
     private val months: Double get() = (daysBack / 30.0).coerceAtLeast(1.0 / 30)
     val monthlyIncome: Double get() = incomeTotal / months
     val monthlyExpense: Double get() = expenseTotal / months
+    val readRate: Double get() = if (found > 0) parsed.size.toDouble() / found else 1.0
     fun monthlyFor(vararg names: String): Double {
         val keys = names.map { it.lowercase() }.toSet()
         return byCategory.filterKeys { it.lowercase() in keys }.values.sum() / months
@@ -98,14 +101,13 @@ suspend fun scanRecentSms(
         return SmsScanResult(found = found)
     }
     // Identity memory: first-scan namings resolve every later scan — a known
-    // "Nancy" arrives as Mom · Food with nothing left to confirm. Totals below
-    // run on resolved rows so the category override is already reflected.
+    // "Nancy" arrives as Nancy · Mother with the in-scope category stamped.
+    // Totals below run on resolved rows so the override is already reflected.
     val memPrefs = context.getSharedPreferences("pesaflow_prefs", Context.MODE_PRIVATE)
-    val resolved = resolveIdentities(
-        parsed,
-        { m -> MerchantMemory.lookup(memPrefs, m)?.label },
-        { m -> CategoryMemory.lookup(memPrefs, m) }
+    val memories = readContactMemories(
+        memPrefs.all.mapNotNull { (k, v) -> (v as? String)?.let { k to it } }.toMap()
     )
+    val resolved = applyContactMemory(parsed, memories)
     // Wallet display: newest balance tail seen (scan order is newest-first).
     newestBalance?.let { saveMpesaBalance(context, it) }
     var income = 0.0
@@ -117,5 +119,10 @@ suspend fun scanRecentSms(
         else if (p.type == TransactionType.EXPENSE) expense += p.amount
         if (p.type == TransactionType.EXPENSE) cats[p.category] = (cats[p.category] ?: 0.0) + p.amount
     }
-    return SmsScanResult(found, resolved, unreadable, income, expense, cats, daysBack, capped)
+    return SmsScanResult(
+        found, resolved, unreadable, income, expense, cats, daysBack, capped,
+        byMonth = resolved.groupBy { monthKey(it.dateTimestamp) }.mapValues { it.value.size },
+        topSenders = resolved.groupBy { it.merchant.ifBlank { "Unknown" } }
+            .mapValues { it.value.size }.toList().sortedByDescending { it.second }.take(5)
+    )
 }

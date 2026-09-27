@@ -38,6 +38,8 @@ import com.pesaflow.app.viewmodels.FinanceViewModel
 import androidx.compose.ui.platform.LocalContext
 import com.pesaflow.app.data.ledger.CategoryMemory
 import com.pesaflow.app.data.ledger.MerchantMemory
+import com.pesaflow.app.data.ledger.saveContactMemory
+import com.pesaflow.app.data.ledger.suggestMemory
 import com.pesaflow.app.data.parsers.SenderCard
 import com.pesaflow.app.data.parsers.groupSenderCards
 import com.pesaflow.app.data.parsers.SmsScanResult
@@ -60,10 +62,15 @@ private const val DAY_MS = 24L * 60 * 60 * 1000
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
 fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
-    var step by rememberSaveable { mutableStateOf(0) }
+    // Mid-onboarding process death resumes where you left off, not at step 0.
+    val bootPrefs = LocalContext.current.getSharedPreferences("pesaflow_prefs", android.content.Context.MODE_PRIVATE)
+    var step by rememberSaveable { mutableStateOf(bootPrefs.getInt("onboarding_step", 0).coerceIn(0, 5)) }
     // Celebration beats the handoff: seeded → check + stars → home.
     var celebrate by rememberSaveable { mutableStateOf(false) }
-    var welcomed by rememberSaveable { mutableStateOf(false) }
+    var welcomed by rememberSaveable { mutableStateOf(bootPrefs.getBoolean("onboarding_welcomed", false)) }
+    LaunchedEffect(step, welcomed) {
+        bootPrefs.edit().putInt("onboarding_step", step).putBoolean("onboarding_welcomed", welcomed).apply()
+    }
 
     // Grand opening gate: first impression, instructions, then the 4 steps.
     if (!welcomed) {
@@ -118,6 +125,12 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
     var scanResult by remember { mutableStateOf<SmsScanResult?>(null) }
     // One card per unknown sender — name once, all their rows file themselves.
     var senderCards by remember { mutableStateOf<List<SenderCard>>(emptyList()) }
+    var autoFacesOb by remember {
+        mutableStateOf(
+            appContext.getSharedPreferences("pesaflow_prefs", android.content.Context.MODE_PRIVATE)
+                .getBoolean("auto_confirm_faces", false)
+        )
+    }
     var scanProgress by remember { mutableStateOf(0) }
     // Transport-collapse months the detector proposes as break (one-tap confirm).
     var breakPrompt by remember { mutableStateOf<Set<String>?>(null) }
@@ -225,10 +238,6 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                     )
                     OutlinedTextField(value = sponsorMonthly, onValueChange = { sponsorMonthly = it }, label = { Text("1 · Monthly upkeep from home? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
                     Text("→ lands as ledger income + a sponsor source you can track.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    OutlinedTextField(value = rentGuess, onValueChange = { rentGuess = it }, label = { Text("2 · Rent/hostel per month? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
-                    Text("→ your Rent budget + Bills watch.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    OutlinedTextField(value = transportDaily, onValueChange = { transportDaily = it }, label = { Text("3 · Transport per day? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
-                    Text("→ Transport budget (×30) + commuter weight in the calculator.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("Where do you stay? 🏠", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf("Parents", "Hostel", "Rented").forEach { h ->
@@ -260,13 +269,20 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                         }
                     }
                     Text(
-                        if (homeKind == "Parents") "Home roof — budgets swap Rent for a small Home upkeep envelope."
+                        if (homeKind == "Parents") "Home roof — no rent box, budgets swap Rent for a small Home upkeep envelope."
                         else if (cooksFood == "No") "Bought meals cost most — Food gets protected first."
                         else if (commuteLen == "Far") "Long matatu daily — Transport becomes non-negotiable."
                         else "Light setup — more room for Savings.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    // Ask-only-what-matters: parents' roof means no rent box.
+                    if (homeKind != "Parents") {
+                        OutlinedTextField(value = rentGuess, onValueChange = { rentGuess = it }, label = { Text("2 · Rent/hostel per month? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                        Text("→ your Rent budget + Bills watch.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    OutlinedTextField(value = transportDaily, onValueChange = { transportDaily = it }, label = { Text("3 · Transport per day? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                    Text("→ Transport budget (×30) + commuter weight in the calculator.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     OutlinedTextField(value = airtimeWeekly, onValueChange = { airtimeWeekly = it }, label = { Text("4 · Airtime + data per week? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
                     Text("→ your Airtime budget (×4).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     OutlinedTextField(value = saveTarget, onValueChange = { saveTarget = it }, label = { Text("5 · Want to save monthly? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
@@ -397,6 +413,15 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                                     style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold
                                 )
                                 Text("In KSh " + r.incomeTotal.toInt() + ", out KSh " + r.expenseTotal.toInt() + " over " + r.daysBack + " days", style = MaterialTheme.typography.bodySmall)
+                                Text("Read " + (r.readRate * 100).toInt() + "% of found texts", style = MaterialTheme.typography.bodySmall)
+                                if (r.byMonth.isNotEmpty()) Text(
+                                    "By month: " + r.byMonth.toList().sortedBy { it.first }.joinToString(", ") { it.first + ": " + it.second },
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                if (r.topSenders.isNotEmpty()) Text(
+                                    "Top senders: " + r.topSenders.joinToString(", ") { it.first + " (" + it.second + ")" },
+                                    style = MaterialTheme.typography.bodySmall
+                                )
                                 Text("Monthly pace about KSh " + r.monthlyExpense.toInt() + ", food about KSh " + r.monthlyFor("Food").toInt(), style = MaterialTheme.typography.bodySmall)
                                 Text(scanQueued.toString() + " queued to pending for Home approval. Placeholders only - edit anything.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
@@ -416,6 +441,29 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                                     card = card,
                                     onSaved = { senderCards = senderCards.filter { it.merchant != card.merchant } }
                                 )
+                            }
+                            // Hands-free mode: remembered people with a usual
+                            // category file themselves from now on.
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Auto-confirm familiar faces 🤝", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        if (autoFacesOb) "ON — texts from remembered people file themselves. Toggle anytime in Settings."
+                                        else "Off — even remembered faces wait for your tap.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Switch(checked = autoFacesOb, onCheckedChange = {
+                                    autoFacesOb = it
+                                    appContext.getSharedPreferences("pesaflow_prefs", android.content.Context.MODE_PRIVATE)
+                                        .edit().putBoolean("auto_confirm_faces", it).apply()
+                                })
                             }
                         }
                     }
@@ -913,13 +961,18 @@ private fun OpeningRow(emoji: String, title: String, body: String) {    Row(modi
 }
 
 
-// Sender card: all of one sender's transactions with their date span, one
-// name field. Saving teaches the alias (future rows resolve) and the
-// category (future rows auto-classify) — asked exactly once.
+// Sender card: all of one sender's transactions with their date span. Three
+// boxes — who they are, their usual category (empty = ask me each time),
+// which direction it applies to — and typing the relation prefills the rest
+// (Mother → Upkeep + money-in). Saving teaches the triple memory: future rows
+// from them resolve and file themselves. Asked exactly once.
 @Composable
 private fun SenderCardRow(card: SenderCard, onSaved: () -> Unit) {
     val ctx = LocalContext.current
-    var name by rememberSaveable(card.merchant) { mutableStateOf("") }
+    var label by rememberSaveable(card.merchant) { mutableStateOf("") }
+    var cat by rememberSaveable(card.merchant) { mutableStateOf("") }
+    var scope by rememberSaveable(card.merchant) { mutableStateOf("BOTH") }
+    var savedTick by remember { mutableStateOf(false) }
     val fmt = remember { java.text.SimpleDateFormat("d MMM", java.util.Locale.getDefault()) }
     val span = remember(card) {
         val a = fmt.format(java.util.Date(card.firstSeen))
@@ -948,26 +1001,48 @@ private fun SenderCardRow(card: SenderCard, onSaved: () -> Unit) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary
             )
+            OutlinedTextField(
+                value = label,
+                onValueChange = { v ->
+                    label = v
+                    // Typing the relation fills category + scope — only where
+                    // you haven't typed or saved anything yourself.
+                    val s = suggestMemory(v)
+                    if (s.category.isNotBlank() && cat.isBlank()) cat = s.category
+                    if (scope == "BOTH" && s.scope != "BOTH") scope = s.scope
+                },
+                label = { Text("Who is ${card.merchant} to you?") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+            OutlinedTextField(
+                value = cat,
+                onValueChange = { cat = it },
+                label = { Text("Usually which category? (empty = ask me)") },
+                placeholder = { Text("e.g. Upkeep, Food, Transport") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Who is this? (e.g. Mom)") },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true
-                )
-                Button(onClick = {
-                    val prefs = ctx.getSharedPreferences("pesaflow_prefs", android.content.Context.MODE_PRIVATE)
-                    if (MerchantMemory.learnAlias(prefs, card.merchant, name)) {
-                        CategoryMemory.learn(prefs, card.merchant, card.suggestedCategory)
-                        onSaved()
-                    }
-                }) { Text("Save") }
+                Text("Applies to:", style = MaterialTheme.typography.bodySmall)
+                listOf("OUT" to "Money out", "IN" to "Money in", "BOTH" to "Both").forEach { (s, text) ->
+                    FilterChip(selected = scope == s, onClick = { scope = s }, label = { Text(text) })
+                }
             }
+            Button(onClick = {
+                val prefs = ctx.getSharedPreferences("pesaflow_prefs", android.content.Context.MODE_PRIVATE)
+                if (saveContactMemory(prefs, card.merchant, label, cat.ifBlank { card.suggestedCategory }, scope)) {
+                    // Backfill the legacy maps too so every reader agrees.
+                    if (label.isNotBlank()) MerchantMemory.learnAlias(prefs, card.merchant, label)
+                    if (cat.isNotBlank()) CategoryMemory.learn(prefs, card.merchant, cat)
+                    savedTick = true
+                    onSaved()
+                }
+            }) { Text(if (savedTick) "Saved ✓" else "Save") }
         }
     }
 }

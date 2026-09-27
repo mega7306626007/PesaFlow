@@ -1150,14 +1150,18 @@ object MpesaParser {
             val rawAmount = amountStr?.replace(",", "")?.trimEnd('.')?.toDouble() ?: return null
             // Zero-amount "movements" (Okoa balance 0, fee waivers) are noise.
             if (!rawAmount.isFinite() || rawAmount <= 0) return null
-            // Transaction costs are xx.xx micro-amounts capped at KSh 60
-            // (5.30, 0.75, 28.00). Anything bigger, or xxx.xx decimals
-            // (123.45), is real money — decimalled xxx.xx is Okoa/Fuliza
-            // territory, already routed by inferCategory below.
+            // Transaction costs, merged rule: single-digit x.xx / 0.xx pocket
+            // change is always a fee (5.30, 0.75); 10–60 needs a fee word in
+            // the text (cost|charge|fee|deducted|levy) or it is a real
+            // micro-purchase (smocha 28.00). Anything bigger, or xxx.xx
+            // decimals (123.45), is real money — decimalled xxx.xx is
+            // Okoa/Fuliza territory, already routed by inferCategory below.
             val cleanAmt = amountStr?.replace(",", "")?.trimEnd('.')?.trim() ?: ""
             val amtVal = cleanAmt.toDoubleOrNull()
-            val isCost = amtVal != null && amtVal > 0 && amtVal <= 60.0 &&
+            val shaped = amtVal != null && amtVal > 0 && amtVal <= 60.0 &&
                 cleanAmt.matches(Regex("""^\d{1,2}\.\d{1,2}$"""))
+            val feeWord = Regex("(?i)cost|charge|\\bfee\\b|deducted|levy").containsMatchIn(raw)
+            val isCost = shaped && (amtVal!! < 10.0 || feeWord)
             // Strip paybill account suffixes ("... for account 12345") and balance tails
             val merchant = (party?.trim() ?: "Unknown Party")
                 .split(" for account")[0]

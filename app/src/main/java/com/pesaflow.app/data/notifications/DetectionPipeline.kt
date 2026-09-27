@@ -33,12 +33,16 @@ internal suspend fun handleDetectedTransaction(context: Context, pending: Pendin
     val repo = FinanceRepository(database)
     val prefs = context.getSharedPreferences("pesaflow_prefs", Context.MODE_PRIVATE)
     // Identity memory: named senders arrive resolved — only strangers ping raw.
-    val known = com.pesaflow.app.data.ledger.resolveIdentities(
-        listOf(pending),
-        { m -> com.pesaflow.app.data.ledger.MerchantMemory.lookup(prefs, m)?.label },
-        { m -> com.pesaflow.app.data.ledger.CategoryMemory.lookup(prefs, m) }
-    ).first()
-    if (prefs.getBoolean("auto_approve_mpesa", false)) {
+    val mems = com.pesaflow.app.data.ledger.readContactMemories(
+        prefs.all.mapNotNull { (k, v) -> (v as? String)?.let { k to it } }.toMap()
+    )
+    val known = com.pesaflow.app.data.ledger.applyContactMemory(listOf(pending), mems).first()
+    // Auto-confirm familiar faces: a remembered person whose usual category
+    // applies skips Pending straight to the ledger. Strangers, "ask me"
+    // people and out-of-scope rows still wait for your tap.
+    val faceAuto = prefs.getBoolean("auto_confirm_faces", false) &&
+        known.displayMerchant.isNotBlank() && known.category.isNotBlank()
+    if (prefs.getBoolean("auto_approve_mpesa", false) || faceAuto) {
         val tx = Transaction(
             amount = known.amount,
             type = known.type,
@@ -62,7 +66,7 @@ internal suspend fun handleDetectedTransaction(context: Context, pending: Pendin
             com.pesaflow.app.data.ledger.ConfidenceMemory.record(prefs, tx.merchant, true)
             NotificationHelper.show(
                 context, 15, "Auto-logged ✅",
-                "KSh ${tx.amount.toInt()} (${tx.category}) saved to your ledger."
+                "KSh ${tx.amount.toInt()} (${tx.category}) from ${known.displayMerchant.ifBlank { known.merchant }} saved."
             )
         }
     } else if (repo.insertPendingTransaction(known)) {

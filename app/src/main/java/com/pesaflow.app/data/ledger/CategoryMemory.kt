@@ -15,7 +15,9 @@ object CategoryMemory {
     fun lookup(prefs: SharedPreferences, merchant: String): String? {
         val want = merchant.trim().lowercase()
         if (want.isEmpty()) return null
-        return read(prefs)[want]
+        // Legacy single map first, then the triple store.
+        read(prefs)[want]?.let { return it }
+        return prefs.getString(contactCatKey(merchant), null)?.takeIf { it.isNotBlank() }
     }
 
 

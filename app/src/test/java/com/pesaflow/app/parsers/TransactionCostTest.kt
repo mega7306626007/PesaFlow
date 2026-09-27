@@ -5,8 +5,9 @@ import org.junit.Assert.*
 import org.junit.Test
 
 
-// Transaction costs are xx.xx micro-amounts capped at KSh 60. They ride in
-// displayCategory so budget math can skip them while the ledger keeps them.
+// Merged fee rule: x.xx/0.xx pocket change is always a fee; 10–60 needs a
+// fee word or it is a real micro-purchase. Flags ride subcategory so budget
+// math can skip them while the ledger keeps them.
 class TransactionCostTest {
 
     @Test
@@ -18,8 +19,16 @@ class TransactionCostTest {
     }
 
     @Test
-    fun `two digit decimal under 60 flags transaction cost`() {
+    fun `two digit decimal without fee word is a real purchase`() {
         val sms = "QWERTY1234 Confirmed. KSh28.00 paid to Shop. on 12/9/26 at 9:15 AM"
+        val tx = MpesaParser.parseMessage(sms)
+        assertNotNull(tx)
+        assertEquals("", tx!!.subcategory)
+    }
+
+    @Test
+    fun `two digit decimal with fee word flags transaction cost`() {
+        val sms = "QWERTY1234 Confirmed. KSh28.00 paid to Shop. on 12/9/26 at 9:15 AM. Transaction cost, KSh2.00."
         val tx = MpesaParser.parseMessage(sms)
         assertNotNull(tx)
         assertEquals("Transaction Cost", tx!!.subcategory)
