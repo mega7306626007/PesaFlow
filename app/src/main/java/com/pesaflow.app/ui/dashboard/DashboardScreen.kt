@@ -116,6 +116,14 @@ fun DashboardScreen(
 
     var editingTx by remember { mutableStateOf<Transaction?>(null) }
     var showAllPending by remember { mutableStateOf(false) }
+    // Unsure-first ordering for the pending queue (computed once per queue
+    // change, reused by the list below).
+    val orderPrefs = LocalContext.current.getSharedPreferences("pesaflow_prefs", android.content.Context.MODE_PRIVATE)
+    val orderedPending = remember(pendingTransactions) {
+        pendingTransactions.sortedBy {
+            com.pesaflow.app.data.ledger.ConfidenceMemory.effective(orderPrefs, it.merchant, it.confidenceScore)
+        }
+    }
     var ledgerFilter by remember { mutableStateOf<String?>(null) }
     var showCustomize by remember { mutableStateOf(false) }
     // First-run coach: 3 steps, then never again (typed DataStore flag).
@@ -612,7 +620,9 @@ fun DashboardScreen(
                         }
                     }
                 }
-                items(pendingTransactions.take(if (showAllPending) Int.MAX_VALUE else 3)) { pending ->
+                // Unsure-first: rows needing human eyes float up; sure rows sink
+                // toward the one-tap bulk button instead of hogging top slots.
+                items(orderedPending.take(if (showAllPending) Int.MAX_VALUE else 3)) { pending ->
                     var editCat by remember(pending.id) { mutableStateOf(pending.category) }
                     // Type can be wrong at parse time (P2P-to-self, withdrawals) —
                     // fix it here instead of delete-and-retype.
@@ -652,6 +662,20 @@ fun DashboardScreen(
                                 label = { Text("Confirm as category") },
                                 modifier = Modifier.fillMaxWidth()
                             )
+                            // Tap-to-pick: learned + inferred categories as chips so
+                            // correct rows never need the keyboard at all.
+                            val quickPicks = listOfNotNull(
+                                com.pesaflow.app.data.ledger.CategoryMemory.lookup(calPrefs, pending.merchant),
+                                com.pesaflow.app.data.parsers.MpesaParser.inferCategory(pending.merchant, editType).takeIf { it != "Other" }
+                            ).distinct().take(3)
+                            if (quickPicks.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    quickPicks.forEach { c ->
+                                        FilterChip(selected = editCat == c, onClick = { editCat = c }, label = { Text(c) })
+                                    }
+                                }
+                            }
                             Spacer(modifier = Modifier.height(4.dp))
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 listOf(
