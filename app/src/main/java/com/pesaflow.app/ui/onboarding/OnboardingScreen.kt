@@ -119,6 +119,16 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
     var homeKind by rememberSaveable { mutableStateOf("Hostel") }
     var commuteLen by rememberSaveable { mutableStateOf("Near") }
     var cooksFood by rememberSaveable { mutableStateOf("Yes") }
+    // First/last lecture hour (commuters): asked on step 0, saved at finish.
+    var firstClassH by rememberSaveable { mutableStateOf("") }
+    var lastClassH by rememberSaveable { mutableStateOf("") }
+    // Single source of truth: every conditional box below reads this set.
+    // The form can never drift from the branch rules.
+    val visible = remember(homeKind, commuteLen, fundSource) {
+        visibleBranches(
+            mapOf("home" to homeKind, "commute" to commuteLen, "fundSource" to fundSource)
+        ).toSet()
+    }
 
     // Step 3: SMS priming
     var smsGranted by rememberSaveable { mutableStateOf(false) }
@@ -266,20 +276,9 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                         }
                     }
                     OutlinedTextField(value = semester, onValueChange = { semester = it }, label = { Text("Current semester") }, modifier = Modifier.fillMaxWidth())
-                }
-                1 -> {
-                    StepArt(R.drawable.ob_tellus)
-                    Text("Tell us about you 📝", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text(
-                        "5 quick guesses — they pre-fill your budgets and goals. Skip anything, estimates are perfect.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    // Continuous numbering (main format): hidden boxes never leave
-                    // gaps — the count follows what you actually see.
-                    var qi = 0
-                    OutlinedTextField(value = sponsorMonthly, onValueChange = { sponsorMonthly = it }, label = { Text("${++qi} · Monthly upkeep from home? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
-                    Text("→ lands as ledger income + a sponsor source you can track.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    // Living + costs live here (step 0): where you stay routes
+                    // every cost box below through the branch engine.
                     Text("Where do you stay? 🏠", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf("Parents", "Hostel", "Shared", "Alone").forEach { h ->
@@ -318,16 +317,53 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    // Ask-only-what-matters: parents' roof means no rent box.
-                    if (homeKind != "Parents") {
-                        OutlinedTextField(value = rentGuess, onValueChange = { rentGuess = it }, label = { Text("${++qi} · Rent/hostel per month? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                    if ("rent" in visible) {
+                        OutlinedTextField(value = rentGuess, onValueChange = { rentGuess = it }, label = { Text("Rent/hostel per month? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
                         Text("→ your Rent budget + Bills watch.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         rentHintFor(university)?.let { hint ->
                             Text("Near ${university.trim()}: $hint.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                         }
                     }
-                    OutlinedTextField(value = transportDaily, onValueChange = { transportDaily = it }, label = { Text("${++qi} · Transport per day? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
-                    Text("→ Transport budget (×30) + commuter weight in the calculator.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if ("fare" in visible) {
+                        OutlinedTextField(value = transportDaily, onValueChange = { transportDaily = it }, label = { Text("Transport per day, to and back? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                        Text("→ Transport budget (×30) + commuter weight in the calculator.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    if ("classTimes" in visible) {
+                        Text("School run 🚌 — first class in, last class out?", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = firstClassH,
+                                onValueChange = { firstClassH = it.filter { ch -> ch.isDigit() }.take(2) },
+                                label = { Text("First (e.g. 7)") },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.weight(1f)
+                            )
+                            OutlinedTextField(
+                                value = lastClassH,
+                                onValueChange = { lastClassH = it.filter { ch -> ch.isDigit() }.take(2) },
+                                label = { Text("Last (e.g. 17)") },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        Text("→ commute days + peak fares derive from this. Edit anytime under More → Semester.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                1 -> {
+                    StepArt(R.drawable.ob_tellus)
+                    Text("Tell us about you 📝", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        "5 quick guesses — they pre-fill your budgets and goals. Skip anything, estimates are perfect.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    // Continuous numbering (main format): hidden boxes never leave
+                    // gaps — the count follows what you actually see.
+                    var qi = 0
+                    OutlinedTextField(value = sponsorMonthly, onValueChange = { sponsorMonthly = it }, label = { Text("${++qi} · Monthly upkeep from home? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                    Text("→ lands as ledger income + a sponsor source you can track.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     OutlinedTextField(value = airtimeWeekly, onValueChange = { airtimeWeekly = it }, label = { Text("${++qi} · Airtime + data per week? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
                     Text("→ your Airtime budget (×4).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     OutlinedTextField(value = saveTarget, onValueChange = { saveTarget = it }, label = { Text("${++qi} · Want to save monthly? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
@@ -620,6 +656,13 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                                 com.pesaflow.app.ui.budgets.Persona.valueOf(it)
                             } ?: revPersona
                             ReviewRow("Setup", effPersona.label, if (personaOverride.isBlank()) effPersona.blurb + " · auto" else "your pick")
+                            val runFirst = firstClassH.toIntOrNull()
+                            val runLast = lastClassH.toIntOrNull()
+                            ReviewRow(
+                                "School run",
+                                if (runFirst != null && runLast != null && "classTimes" in visible) "$runFirst:00 in · $runLast:00 out, Mon–Fri" else "—",
+                                if (runFirst != null && runLast != null && "classTimes" in visible) "drives commute days" else "skip"
+                            )
                             // One-tap correction: six researched setups, detected one
                             // preselected. Tapping the current pick clears back to auto.
                             com.pesaflow.app.ui.budgets.Persona.values().forEach { p ->
@@ -842,6 +885,16 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                             val feesAmt = feesAmount.toDoubleOrNull()?.takeIf { it > 0 }
                             if (feesAmt != null && viewModel.bills.value.none { it.name == "Semester fees" && it.status != "PAID" }) {
                                 viewModel.addBill("Semester fees", feesAmt, endMillis, "School", "ONE_TIME")
+                            }
+                            // School run from step 0: class hours ride Mon–Fri into
+                            // the timetable — commute days + peak verdict follow.
+                            val firstH = firstClassH.toIntOrNull()
+                            val lastH = lastClassH.toIntOrNull()
+                            if (firstH != null && lastH != null && "classTimes" in visible) {
+                                com.pesaflow.app.data.schedule.WeekPlan.saveTimes(
+                                    appContext,
+                                    listOf("Mon", "Tue", "Wed", "Thu", "Fri").associateWith { firstH to lastH }
+                                )
                             }
                             // Opening money hits the ledger: pocket cash + monthly upkeep
                             // become INCOME rows so budgets, net worth, reports, planners update.
