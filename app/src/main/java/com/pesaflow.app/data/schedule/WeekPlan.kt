@@ -61,6 +61,59 @@ object WeekPlan {
     fun freeEvenings(context: Context): List<String> =
         DAYS.filter { !isBusy(load(context)[it], EVENING) }
 
+    // Class times: first/last lecture hour per day ("Mon" to 7 to 17).
+    // Asked once, editable forever — drives commute days + peak exposure.
+    private const val TIMES_KEY = "class_times_json"
+
+    fun loadTimes(context: Context): Map<String, Pair<Int, Int>> {
+        return try {
+            val o = org.json.JSONObject(prefs(context).getString(TIMES_KEY, "{}").orEmpty())
+            DAYS.mapNotNull { d ->
+                val arr = o.optJSONArray(d) ?: return@mapNotNull null
+                val first = arr.optInt(0, -1)
+                val last = arr.optInt(1, -1)
+                if (first in 5..23 && last in 5..23 && first <= last) d to (first to last)
+                else null
+            }.toMap()
+        } catch (e: Exception) {
+            emptyMap()
+        }
+    }
+
+    fun saveTimes(context: Context, times: Map<String, Pair<Int, Int>>) {
+        val o = org.json.JSONObject()
+        times.forEach { (d, h) ->
+            if (d in DAYS && h.first in 5..23 && h.second in 5..23 && h.first <= h.second) {
+                o.put(d, org.json.JSONArray(listOf(h.first, h.second)))
+            }
+        }
+        prefs(context).edit().putString(TIMES_KEY, o.toString()).apply()
+    }
+
+    // Commute days: days with classes (times win, grid slots backstop).
+    // Empty everywhere → Mon–Fri default, never zero.
+    fun commuteDays(week: Map<String, Set<String>>, times: Map<String, Pair<Int, Int>>): List<String> {
+        val timed = DAYS.filter { times.containsKey(it) }
+        if (timed.isNotEmpty()) return timed
+        val busy = DAYS.filter { week[it].orEmpty().isNotEmpty() }
+        return if (busy.isNotEmpty()) busy else listOf("Mon", "Tue", "Wed", "Thu", "Fri")
+    }
+
+    // Peak exposure from the school run: first class at/before 8 means the
+    // 7–9am peak; last class at/after 17 catches the evening peak. Either,
+    // both, or a calm off-peak run — stated, never priced (fares wobble).
+    fun peakNote(firstHour: Int?, lastHour: Int?): String? {
+        val morning = firstHour != null && firstHour <= 8
+        val evening = lastHour != null && lastHour >= 17
+        return when {
+            morning && evening -> "Peak both ways — morning + evening fares run hot"
+            morning -> "Morning peak — 7–9am fares run hot"
+            evening -> "Evening peak — late return fares run hot"
+            firstHour != null || lastHour != null -> "Off-peak run — calm fares"
+            else -> null
+        }
+    }
+
     fun apply(context: Context, suggested: Map<String, Set<String>>) {
         val cur = load(context).toMutableMap()
         suggested.forEach { (d, s) ->

@@ -23,6 +23,9 @@ import com.pesaflow.app.ui.theme.SectionHeader
 import com.pesaflow.app.ui.university.UniversityFinancialPlanner
 import com.pesaflow.app.viewmodels.FinanceViewModel
 import com.pesaflow.app.ui.theme.CinematicBackdrop
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import com.pesaflow.app.data.schedule.WeekPlan
 import com.pesaflow.app.ui.theme.TintSemesterGold
 import com.pesaflow.app.R
 
@@ -36,9 +39,19 @@ fun SemesterScreen(viewModel: FinanceViewModel, onNavigate: (String) -> Unit = {
     val debts by viewModel.debts.collectAsState()
     val budgets by viewModel.budgets.collectAsState()
     val mealItems by viewModel.mealItems.collectAsState()
+    val context = LocalContext.current
     var roommates by remember { mutableStateOf(2) }
     var fare by remember { mutableStateOf("") }
     var commuteDays by remember { mutableStateOf("5") }
+    var daysTouched by remember { mutableStateOf(false) }
+    // Timetable truth: class days drive the commute count; per-day first/last
+    // hours drive the peak verdict. Asked here, editable here, grid-compatible.
+    var classTimes by remember { mutableStateOf(WeekPlan.loadTimes(context)) }
+    val weekGrid = remember { WeekPlan.load(context) }
+    val commuteDayList = remember(weekGrid, classTimes) { WeekPlan.commuteDays(weekGrid, classTimes) }
+    LaunchedEffect(commuteDayList) {
+        if (!daysTouched) commuteDays = commuteDayList.size.toString()
+    }
     // Autofill from the Transport budget already set (onboarding or scan) —
     // the daily-fare question must never arrive with a blank box twice.
     val transportMonthly = budgets.firstOrNull { it.category == "Transport" && it.type == BudgetType.MONTHLY }?.limitAmount
@@ -50,7 +63,6 @@ fun SemesterScreen(viewModel: FinanceViewModel, onNavigate: (String) -> Unit = {
     }
     var showChamaDialog by remember { mutableStateOf(false) }
     val chamas by viewModel.chamaGroups.collectAsState()
-    val context = LocalContext.current
     val pdfSaver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
         if (uri != null) {
             try {
@@ -217,17 +229,79 @@ fun SemesterScreen(viewModel: FinanceViewModel, onNavigate: (String) -> Unit = {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Text("Matatu Preset 🚌", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(8.dp))
+                    // Timetable school run: class days from the grid, first/last
+                    // lecture per day asked + editable, peak verdict follows.
+                    Text(
+                        "Class days: " + commuteDayList.joinToString(" · ") + " (from timetable)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    commuteDayList.forEach { d ->
+                        val t = classTimes[d]
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(d, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                            OutlinedTextField(
+                                value = t?.first?.toString() ?: "",
+                                onValueChange = { v ->
+                                    val f = v.toIntOrNull()
+                                    val next = classTimes.toMutableMap()
+                                    if (v.isBlank()) next.remove(d)
+                                    else if (f != null) next[d] = f to (next[d]?.second ?: (f + 8).coerceAtMost(22))
+                                    classTimes = next
+                                    WeekPlan.saveTimes(context, next)
+                                },
+                                label = { Text("First") },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.weight(1f)
+                            )
+                            OutlinedTextField(
+                                value = t?.second?.toString() ?: "",
+                                onValueChange = { v ->
+                                    val l = v.toIntOrNull()
+                                    val next = classTimes.toMutableMap()
+                                    if (v.isBlank()) next.remove(d)
+                                    else if (l != null) {
+                                        val f = next[d]?.first ?: (l - 8).coerceAtLeast(5)
+                                        next[d] = f to l
+                                    }
+                                    classTimes = next
+                                    WeekPlan.saveTimes(context, next)
+                                },
+                                label = { Text("Last") },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                    val earliestFirst = classTimes.values.minOfOrNull { it.first }
+                    val latestLast = classTimes.values.maxOfOrNull { it.second }
+                    WeekPlan.peakNote(earliestFirst, latestLast)?.let { note ->
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(
                             value = fare,
                             onValueChange = { fare = it },
                             label = { Text("Fare one-way") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             modifier = Modifier.weight(1f)
                         )
                         OutlinedTextField(
                             value = commuteDays,
-                            onValueChange = { commuteDays = it },
+                            onValueChange = { commuteDays = it; daysTouched = true },
                             label = { Text("Days/wk") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             modifier = Modifier.weight(1f)
                         )
                     }
