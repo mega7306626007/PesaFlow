@@ -94,6 +94,16 @@ object MpesaParser {
     private val loanOutRegex = Pattern.compile(
         "(?i)(?:(repayment|repaid|loan\\s+payment|loan\\s+repaid)[^.]{0,60}?KSh\\s*([0-9,.]+)|KSh\\s*([0-9,.]+)[^.]{0,60}?(repayment|repaid|loan\\s+payment|loan\\s+repaid))"
     )
+    // Pochi La Biashara wallet moves — transfers, never spending.
+    private val pochiSendRegex = Pattern.compile("(?i)([A-Z0-9]{8,12})\\s*Confirmed\\.\\s*KSh\\s*([0-9,.]+)\\s+sent\\s+to\\s+Pochi La Biashara[^.]{0,30}?\\s+on\\s+([0-9/\\-]{6,12})\\s+at\\s+([0-9:.\\sAPM]+)")
+    private val pochiReceiveRegex = Pattern.compile("(?i)([A-Z0-9]{8,12})\\s*Confirmed\\.\\s*You\\s+have\\s+received\\s+KSh\\s*([0-9,.]+)\\s+to\\s+Pochi La Biashara\\s+from\\s+([^.]+?)\\s+on\\s+([0-9/\\-]{6,12})\\s+at\\s+([0-9:.\\sAPM]+)")
+    private val pochiWithdrawRegex = Pattern.compile("(?i)([A-Z0-9]{8,12})\\s*Confirmed\\.\\s*You\\s+have\\s+withdrawn\\s+KSh\\s*([0-9,.]+)\\s+from\\s+Pochi La Biashara[^.]{0,30}?\\s+on\\s+([0-9/\\-]{6,12})\\s+at\\s+([0-9:.\\sAPM]+)")
+    // Hustler Fund borrow/repay/save.
+    private val hustlerBorrowRegex = Pattern.compile("(?i)([A-Z0-9]{8,12})\\s*Confirmed\\.\\s*You\\s+have\\s+borrowed\\s+KSh\\s*([0-9,.]+)\\s+from\\s+Hustler Fund\\s+on\\s+([0-9/\\-]{6,12})\\s+at\\s+([0-9:.\\sAPM]+)")
+    private val hustlerRepayRegex = Pattern.compile("(?i)([A-Z0-9]{8,12})\\s*Confirmed\\.\\s*Hustler Fund repayment of KSh\\s*([0-9,.]+)\\s+received\\s+on\\s+([0-9/\\-]{6,12})\\s+at\\s+([0-9:.\\sAPM]+)")
+    private val hustlerSaveRegex = Pattern.compile("(?i)([A-Z0-9]{8,12})\\s*Confirmed\\.\\s*You\\s+have\\s+saved\\s+KSh\\s*([0-9,.]+)\\s+to\\s+Hustler Fund[^.]{0,30}?\\s+on\\s+([0-9/\\-]{6,12})\\s+at\\s+([0-9:.\\sAPM]+)")
+    // Lipa Mdogo Mdogo device installments.
+    private val lipaMdogoRegex = Pattern.compile("(?i)([A-Z0-9]{8,12})\\s*Confirmed\\.\\s*KSh\\s*([0-9,.]+)\\s+paid\\s+to\\s+Lipa Mdogo Mdogo\\s+for\\s+([^.]+?)\\s+on\\s+([0-9/\\-]{6,12})\\s+at\\s+([0-9:.\\sAPM]+)")
     // Fuliza repaid: debt serviced, not new spending power.
     private val fulizaRepayRegex = Pattern.compile(
         "(?i)fuliza[^.]{0,60}?(?:(?:repaid|repayment|paid\\s+back|recovered)[^.]{0,60}?KSh\\s*([0-9,.]+)|KSh\\s*([0-9,.]+)[^.]{0,60}?(?:repaid|repayment|paid\\s+back|recovered))"
@@ -238,6 +248,105 @@ object MpesaParser {
                 type = TransactionType.EXPENSE,
                 raw = sanitized
             )
+        }
+
+
+        // Pochi La Biashara wallet moves (ahead of merchant/paybill: "sent to
+        // Pochi" wears paybill's shape but it is a wallet transfer, not spending).
+        matcher = pochiSendRegex.matcher(sanitized)
+        if (matcher.find()) {
+            return buildPending(
+                code = matcher.group(1),
+                amountStr = matcher.group(2),
+                party = "Pochi La Biashara",
+                dateStr = matcher.group(3),
+                timeStr = matcher.group(4),
+                type = TransactionType.TRANSFER,
+                raw = sanitized,
+                confidence = 0.85f
+            )?.copy(category = "Transfers")
+        }
+        matcher = pochiReceiveRegex.matcher(sanitized)
+        if (matcher.find()) {
+            return buildPending(
+                code = matcher.group(1),
+                amountStr = matcher.group(2),
+                party = (matcher.group(3) ?: "Pochi customer").trim(),
+                dateStr = matcher.group(4),
+                timeStr = matcher.group(5),
+                type = TransactionType.INCOME,
+                raw = sanitized,
+                confidence = 0.85f
+            )?.copy(category = "Other")
+        }
+        matcher = pochiWithdrawRegex.matcher(sanitized)
+        if (matcher.find()) {
+            return buildPending(
+                code = matcher.group(1),
+                amountStr = matcher.group(2),
+                party = "Pochi La Biashara",
+                dateStr = matcher.group(3),
+                timeStr = matcher.group(4),
+                type = TransactionType.TRANSFER,
+                raw = sanitized,
+                confidence = 0.85f
+            )?.copy(category = "Transfers")
+        }
+        // Hustler Fund (ahead of Fuliza: "borrowed KSh" wears its shape —
+        // without this, hustler loans misfile as Fuliza).
+        matcher = hustlerBorrowRegex.matcher(sanitized)
+        if (matcher.find()) {
+            return buildPending(
+                code = matcher.group(1),
+                amountStr = matcher.group(2),
+                party = "Hustler Fund",
+                dateStr = matcher.group(3),
+                timeStr = matcher.group(4),
+                type = TransactionType.INCOME,
+                raw = sanitized,
+                confidence = 0.85f
+            )?.copy(category = "Debt")
+        }
+        matcher = hustlerRepayRegex.matcher(sanitized)
+        if (matcher.find()) {
+            return buildPending(
+                code = matcher.group(1),
+                amountStr = matcher.group(2),
+                party = "Hustler Fund",
+                dateStr = matcher.group(3),
+                timeStr = matcher.group(4),
+                type = TransactionType.EXPENSE,
+                raw = sanitized,
+                confidence = 0.85f
+            )?.copy(category = "Debt")
+        }
+        matcher = hustlerSaveRegex.matcher(sanitized)
+        if (matcher.find()) {
+            return buildPending(
+                code = matcher.group(1),
+                amountStr = matcher.group(2),
+                party = "Hustler Fund",
+                dateStr = matcher.group(3),
+                timeStr = matcher.group(4),
+                type = TransactionType.SAVING,
+                raw = sanitized,
+                confidence = 0.85f
+            )?.copy(category = "Savings")
+        }
+        // Lipa Mdogo Mdogo device installments ("paid to X for Y" has no dot —
+        // the merchant pattern is blind to it).
+        matcher = lipaMdogoRegex.matcher(sanitized)
+        if (matcher.find()) {
+            return buildPending(
+                code = matcher.group(1),
+                amountStr = matcher.group(2),
+                party = "Lipa Mdogo Mdogo (" + (matcher.group(3) ?: "device").trim() + ")",
+                dateStr = matcher.group(4),
+                timeStr = matcher.group(5),
+                type = TransactionType.EXPENSE,
+                raw = sanitized,
+                confidence = 0.85f
+            )?.copy(category = "Shopping")
         }
 
 
@@ -1111,31 +1220,33 @@ object MpesaParser {
         if (lower.contains("fuliza")) return "Other"
         if (lower.contains("m-shwari") || lower.contains("mshwari")) return "Savings"
         if (lower.contains("sacco")) return "Savings"
-        if (lower.contains("loan") || lower.contains("tala") || lower.contains("branch") || lower.contains("zenka") || lower.contains("mkopa") || lower.contains("m-kopa")) return "Debt"
-        if (lower.contains("transfer") || lower.contains("agent") || lower.contains("kcb") || lower.contains("equity") || lower.contains("absa") || lower.contains("stanbic") || lower.contains("co-op") || lower.contains("coop") || lower.contains("family") || lower.contains("dtb") || lower.contains("ncba") || lower.contains("bank")) return "Transfers"
+        if (lower.contains("loan") || lower.contains("tala") || lower.contains("branch") || lower.contains("zenka") || lower.contains("mkopa") || lower.contains("m-kopa") || lower.contains("hustler")) return "Debt"
+        if (lower.contains("transfer") || lower.contains("agent") || lower.contains("pochi") || lower.contains("kcb") || lower.contains("equity") || lower.contains("absa") || lower.contains("stanbic") || lower.contains("co-op") || lower.contains("coop") || lower.contains("family") || lower.contains("dtb") || lower.contains("ncba") || lower.contains("bank")) return "Transfers"
         if (type == TransactionType.INCOME) return "Salary"
         return when {
             lower.contains("safaricom") || lower.contains("airtime") || lower.contains("bundle") || lower.contains("data") || lower.contains("okoa") || lower.contains("saf") -> "Airtime"
             lower.contains("kplc") || lower.contains("token") || lower.contains("electric") -> "Electricity"
-            lower.contains("supermarket") || lower.contains("naivas") || lower.contains("quickmart") || lower.contains("carrefour") || lower.contains("chandarana") || lower.contains("duka") -> "Shopping"
+            lower.contains("supermarket") || lower.contains("naivas") || lower.contains("quickmart") || lower.contains("carrefour") || lower.contains("chandarana") || lower.contains("duka") || lower.contains("jumia") || lower.contains("kilimall") || lower.contains("jiji") || lower.contains("eastmatt") || lower.contains("cleanshelf") || lower.contains("magunas") || lower.contains("kibo") || lower.contains("lipa mdogo") -> "Shopping"
+            // Bookshops are School, not print shops — checked before "book".
+            lower.contains("text book") || lower.contains("textbook") -> "School"
             // Printing outranks Food: "Cyber Cafe" is a print shop, not lunch.
             lower.contains("cyber") || lower.contains("print") || lower.contains("book") || lower.contains("stationery") || lower.contains("photocopy") -> "Printing"
-            lower.contains("java") || lower.contains("hotel") || lower.contains("cafe") || lower.contains("kiosk") || lower.contains("kibanda") || lower.contains("vibanda") || lower.contains("lunch") || lower.contains("supper") || lower.contains("breakfast") || lower.contains("dinner") || lower.contains("chapo") || lower.contains("chips") || lower.contains("smokie") || lower.contains("mutura") || lower.contains("ndengu") || lower.contains("ugali") ||             lower.contains("sukuma") || lower.contains("pilau") || lower.contains("chapati") || lower.contains("nyama") || lower.contains("kuku") || lower.contains("mama") || lower.contains("rest") || lower.contains("food") || lower.contains("eat") -> "Food"
-            lower.contains("matatu") || lower.contains("uber") || lower.contains("bolt") || lower.contains("lavender") || lower.contains("stage") || lower.contains("fare") || lower.contains("boda") || lower.contains("motorbike") || lower.contains("grability") || lower.contains("ride") || lower.contains("car") || lower.contains("parking") -> "Transport"
+            lower.contains("java") || lower.contains("hotel") || lower.contains("cafe") || lower.contains("kiosk") || lower.contains("kibanda") || lower.contains("vibanda") || lower.contains("lunch") || lower.contains("supper") || lower.contains("breakfast") || lower.contains("dinner") || lower.contains("chapo") || lower.contains("chips") || lower.contains("smokie") || lower.contains("mutura") || lower.contains("ndengu") || lower.contains("ugali") ||             lower.contains("sukuma") || lower.contains("pilau") || lower.contains("chapati") || lower.contains("nyama") || lower.contains("kuku") || lower.contains("mama") || lower.contains("rest") || lower.contains("food") || lower.contains("eat") || lower.contains("artcaffe") || lower.contains("kfc") || lower.contains("big square") || lower.contains("galitos") || lower.contains("chicken inn") || lower.contains("pizza inn") -> "Food"
+            lower.contains("matatu") || lower.contains("uber") || lower.contains("bolt") || lower.contains("lavender") || lower.contains("stage") || lower.contains("fare") || lower.contains("boda") || lower.contains("motorbike") || lower.contains("grability") || lower.contains("ride") || lower.contains("car") || lower.contains("parking") || lower.contains("expressway") || lower.contains("ntsa") -> "Transport"
             // "house" alone doesn't mean rent (coffee houses, food houses) —
             // real rent texts say rent/hostel/apartment/nyumba.
             lower.contains("hostel") || lower.contains("rent") || lower.contains("apartment") -> "Rent"
             lower.contains("water") || lower.contains("nairobi water") -> "Water"
-            lower.contains("school") || lower.contains("fees") || lower.contains(" fee ") || lower.contains("university") || lower.contains("tuition") || lower.contains("exam") -> "School"
+            lower.contains("school") || lower.contains("fees") || lower.contains(" fee ") || lower.contains("university") || lower.contains("tuition") || lower.contains("exam") || lower.contains("strathmore") -> "School"
             lower.contains("reversal") || lower.contains("revers") -> "Other"
             lower.contains("salon") || lower.contains("barber") || lower.contains("hair") || lower.contains("nails") -> "Kujibamba"
             lower.contains("shirt") || lower.contains("trouser") || lower.contains("shoe") || lower.contains("clothe") || lower.contains("dress") || lower.contains("jacket") || lower.contains("jeans") || lower.contains("wear") -> "Clothes"
-            lower.contains("hospital") || lower.contains("clinic") || lower.contains("pharmacy") || lower.contains("medicine") || lower.contains("drug") -> "Health"
-            lower.contains("wifi") || lower.contains("internet") || lower.contains("modem") -> "Data"
+            lower.contains("hospital") || lower.contains("clinic") || lower.contains("pharmacy") || lower.contains("medicine") || lower.contains("drug") || lower.contains("goodlife") || lower.contains("haltons") || lower.contains("mydawa") || lower.contains("khan") || lower.contains("shah") -> "Health"
+            lower.contains("wifi") || lower.contains("internet") || lower.contains("modem") || lower.contains("zuku") -> "Data"
             lower.contains("shif") || lower.contains("nhif") -> "Health"
             lower.contains("nssf") -> "Savings"
-            lower.contains("netflix") || lower.contains("spotify") || lower.contains("showmax") || lower.contains("dstv") || lower.contains("gotv") || lower.contains("startimes") -> "Kujibamba"
-            lower.contains("fuel") || lower.contains("petrol") -> "Transport"
+            lower.contains("netflix") || lower.contains("spotify") || lower.contains("showmax") || lower.contains("dstv") || lower.contains("gotv") || lower.contains("startimes") || lower.contains("sportpesa") || lower.contains("betika") -> "Kujibamba"
+            lower.contains("fuel") || lower.contains("petrol") || lower.contains("shell") || lower.contains("rubis") || lower.contains("totalenergies") || lower.contains("ola energy") -> "Transport"
             else -> "Other"
         }
     }
