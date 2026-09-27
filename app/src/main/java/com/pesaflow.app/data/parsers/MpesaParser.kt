@@ -1038,9 +1038,17 @@ object MpesaParser {
         return try {
             // Trailing dots are sentence punctuation, not decimals: "KSh99.00."
             // must parse as 99.00 — otherwise every end-of-sentence amount throws.
-            val amount = amountStr?.replace(",", "")?.trimEnd('.')?.toDouble() ?: return null
+            val rawAmount = amountStr?.replace(",", "")?.trimEnd('.')?.toDouble() ?: return null
             // Zero-amount "movements" (Okoa balance 0, fee waivers) are noise.
-            if (!amount.isFinite() || amount <= 0) return null
+            if (!rawAmount.isFinite() || rawAmount <= 0) return null
+            // Transaction costs are xx.xx micro-amounts capped at KSh 60
+            // (5.30, 0.75, 28.00). Anything bigger, or xxx.xx decimals
+            // (123.45), is real money — decimalled xxx.xx is Okoa/Fuliza
+            // territory, already routed by inferCategory below.
+            val cleanAmt = amountStr?.replace(",", "")?.trimEnd('.')?.trim() ?: ""
+            val amtVal = cleanAmt.toDoubleOrNull()
+            val isCost = amtVal != null && amtVal > 0 && amtVal <= 60.0 &&
+                cleanAmt.matches(Regex("""^\d{1,2}\.\d{1,2}$"""))
             // Strip paybill account suffixes ("... for account 12345") and balance tails
             val merchant = (party?.trim() ?: "Unknown Party")
                 .split(" for account")[0]
@@ -1050,7 +1058,7 @@ object MpesaParser {
             val timestamp = parseDateTime(dateStr, timeStr)
 
             PendingTransaction(
-                amount = amount,
+                amount = rawAmount,
                 type = type,
                 category = inferCategory(merchant, type),
                 merchant = merchant,
@@ -1059,7 +1067,9 @@ object MpesaParser {
                 source = TransactionSource.MPESA_SMS,
                 sourceTransactionId = code,
                 rawText = raw,
-                confidenceScore = confidence
+                confidenceScore = confidence,
+                // NEW: flag so engines can exclude from budget aggregates.
+                displayCategory = if (isCost) "Transaction Cost" else ""
             )
         } catch (e: Exception) {
             null
