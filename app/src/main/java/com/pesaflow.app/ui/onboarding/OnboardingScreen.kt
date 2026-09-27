@@ -511,6 +511,11 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                                     style = MaterialTheme.typography.bodySmall
                                 )
                                 Text("Monthly pace about KSh " + r.monthlyExpense.toInt() + ", food about KSh " + r.monthlyFor("Food").toInt(), style = MaterialTheme.typography.bodySmall)
+                                r.byCategory.toList().sortedByDescending { it.second }.take(3).joinToString(" · ") {
+                                    it.first + " " + com.pesaflow.app.data.finance.MoneyFormatter.compact(com.pesaflow.app.data.finance.Money.of(it.second))
+                                }.takeIf { it.isNotBlank() }?.let {
+                                    Text("Top: $it", style = MaterialTheme.typography.bodySmall)
+                                }
                                 Text(scanQueued.toString() + " queued to pending for Home approval. Placeholders only - edit anything.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }

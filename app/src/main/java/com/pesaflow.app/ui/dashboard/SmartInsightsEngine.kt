@@ -113,7 +113,21 @@ heldBalance: Double = 0.0
         ))
     }
 
-    // Payday timing: does money burn right after it lands? Each payday owns
+    // Hourly pattern: which 3-hour window owns the outflow? Thin or flat
+    // data stays silent — the engine only speaks with 5+ rows and 35%+.
+    com.pesaflow.app.data.analytics.hourlyPeak(
+        txs.filter { !it.isSample }.map {
+            com.pesaflow.app.data.parsers.LedgerRow(it.amount, it.type, it.category, it.merchant, it.dateTimestamp)
+        }
+    )?.let { hp ->
+        val h = com.pesaflow.app.data.analytics.hourLabel(hp.peakStartHour)
+        out.add(t(
+            "Rhythm: most spending lands around $h (~${hp.sharePct}% of outflows). Big buys outside that window stand out. 🕐",
+            "Rhythm: spending mingi hu-land around $h (~${hp.sharePct}% ya outflows). Nunua kubwa nje ya io window ina-stand out. 🕐",
+            "Mzunguko: matumizi mengi hutokea karibu na $h (~asilimia ${hp.sharePct} ya matumizi). Ununuzi mkubwa nje ya muda huo unajitokeza. 🕐",
+            "Rhythm: spending most hu-land around $h (~${hp.sharePct}% ya outflows). Big buys outside that window hu-stand out. 🕐"
+        ))
+    }
     // the spending until the next one — no double-counting.
     com.pesaflow.app.data.analytics.paydaySplurge(
         txs.filter { !it.isSample }.map {

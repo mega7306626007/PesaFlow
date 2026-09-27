@@ -77,15 +77,25 @@ suspend fun scanRecentSms(
             )?.use { c ->
                 val bodyIdx = c.getColumnIndexOrThrow("body")
                 val addrIdx = c.getColumnIndexOrThrow("address")
+                val dateIdx = c.getColumnIndexOrThrow("date")
                 while (c.moveToNext()) {
                     found++
                     pageRows++
                     val body = c.getString(bodyIdx) ?: ""
                     val sender = try { c.getString(addrIdx) ?: "" } catch (e: Exception) { "" }
+                    val smsDate = try { c.getLong(dateIdx) } catch (e: Exception) { 0L }
                     // Sender powers bank-name patterns — dropping it blinds them.
                     // Harvest the wallet balance even from unparseable bodies.
                     if (newestBalance == null) parseBalance(body)?.let { newestBalance = it }
-                    val p = MpesaParser.parseMessage(body, sender)
+                    val raw = MpesaParser.parseMessage(body, sender)
+                    // Dateless parses default to now (bundles, loans, Airtel
+                    // receives) — the inbox stamp knows better. Only rewinds
+                    // fresh-defaulted rows, never real dates.
+                    val nowMs = System.currentTimeMillis()
+                    val p = if (raw != null && smsDate > 0 &&
+                        kotlin.math.abs(raw.dateTimestamp - nowMs) < 120_000 &&
+                        kotlin.math.abs(smsDate - nowMs) > 120_000
+                    ) raw.copy(dateTimestamp = smsDate) else raw
                     if (p == null) unreadable++ else parsed.add(p)
                 }
             }

@@ -104,6 +104,15 @@ object MpesaParser {
     private val hustlerSaveRegex = Pattern.compile("(?i)([A-Z0-9]{8,12})\\s*Confirmed\\.\\s*You\\s+have\\s+saved\\s+KSh\\s*([0-9,.]+)\\s+to\\s+Hustler Fund[^.]{0,30}?\\s+on\\s+([0-9/\\-]{6,12})\\s+at\\s+([0-9:.\\sAPM]+)")
     // Lipa Mdogo Mdogo device installments.
     private val lipaMdogoRegex = Pattern.compile("(?i)([A-Z0-9]{8,12})\\s*Confirmed\\.\\s*KSh\\s*([0-9,.]+)\\s+paid\\s+to\\s+Lipa Mdogo Mdogo\\s+for\\s+([^.]+?)\\s+on\\s+([0-9/\\-]{6,12})\\s+at\\s+([0-9:.\\sAPM]+)")
+    // Airtel Money (TID-based, no "Confirmed" — sender-agnostic, TID fingerprints).
+    private val airtelSendRegex = Pattern.compile("(?i)You have sent KSh\\s*([0-9,.]+)\\s+to\\s+([A-Za-z' .]+?)\\s+(0\\d{9})\\.?\\s+TID:\\s*([A-Za-z0-9]+)")
+    private val airtelReceiveRegex = Pattern.compile("(?i)You have received KSh\\s*([0-9,.]+)\\s+from\\s+([A-Za-z' .]+?)\\s+(0\\d{9})\\.?\\s+TID:\\s*([A-Za-z0-9]+)")
+    private val airtelPaybillRegex = Pattern.compile("(?i)You have paid KSh\\s*([0-9,.]+)\\s+to\\s+([A-Za-z0-9' .&\\-]+?)\\s+(?:Paybill\\s+|Bill\\s+)?(\\d{5,7})\\b.*?TID:\\s*([A-Za-z0-9]+)")
+    private val airtelWithdrawRegex = Pattern.compile("(?i)You have withdrawn KSh\\s*([0-9,.]+).*?Agent\\s*([A-Za-z0-9' .&\\-]*?)\\.?\\s*TID:\\s*([A-Za-z0-9]+)")
+    private val airtelDepositRegex = Pattern.compile("(?i)You have deposited KSh\\s*([0-9,.]+).*?TID:\\s*([A-Za-z0-9]+)")
+    private val airtelAirtimeRegex = Pattern.compile("(?i)You have bought.*?airtime.*?KSh\\s*([0-9,.]+).*?TID:\\s*([A-Za-z0-9]+)")
+    private val airtelBundleRegex = Pattern.compile("(?i)You have bought (.+?) data bundle for KSh\\s*([0-9,.]+).*?TID:\\s*([A-Za-z0-9]+)")
+    private val airtelDateRegex = Pattern.compile("(?i)Date:\\s*(\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4})\\s+(\\d{1,2}:\\d{2})")
     // Fuliza repaid: debt serviced, not new spending power.
     private val fulizaRepayRegex = Pattern.compile(
         "(?i)fuliza[^.]{0,60}?(?:(?:repaid|repayment|paid\\s+back|recovered)[^.]{0,60}?KSh\\s*([0-9,.]+)|KSh\\s*([0-9,.]+)[^.]{0,60}?(?:repaid|repayment|paid\\s+back|recovered))"
@@ -347,6 +356,120 @@ object MpesaParser {
                 raw = sanitized,
                 confidence = 0.85f
             )?.copy(category = "Shopping")
+        }
+
+
+        // Airtel Money (TID fingerprint, "Balance:" tails, "Date: dd/MM/yyyy
+        // HH:mm"). No "Confirmed" — nothing above can have claimed these.
+        // Airtel is a separate wallet: method OTHER, never MPESA.
+        fun airtelDate(): Pair<String?, String?> {
+            val dm = airtelDateRegex.matcher(sanitized)
+            return if (dm.find()) (dm.group(1) to dm.group(2)) else (null to null)
+        }
+        matcher = airtelSendRegex.matcher(sanitized)
+        if (matcher.find()) {
+            val (ad, at) = airtelDate()
+            return buildPending(
+                code = matcher.group(4),
+                amountStr = matcher.group(1),
+                party = (matcher.group(2) ?: "Airtel contact").trim(),
+                dateStr = ad,
+                timeStr = at,
+                type = TransactionType.EXPENSE,
+                raw = sanitized,
+                confidence = 0.9f,
+                method = PaymentMethod.OTHER
+            )
+        }
+        matcher = airtelReceiveRegex.matcher(sanitized)
+        if (matcher.find()) {
+            val (ad, at) = airtelDate()
+            return buildPending(
+                code = matcher.group(4),
+                amountStr = matcher.group(1),
+                party = (matcher.group(2) ?: "Airtel contact").trim(),
+                dateStr = ad,
+                timeStr = at,
+                type = TransactionType.INCOME,
+                raw = sanitized,
+                confidence = 0.9f,
+                method = PaymentMethod.OTHER
+            )
+        }
+        matcher = airtelPaybillRegex.matcher(sanitized)
+        if (matcher.find()) {
+            val (ad, at) = airtelDate()
+            return buildPending(
+                code = matcher.group(4),
+                amountStr = matcher.group(1),
+                party = (matcher.group(2) ?: "Airtel paybill").trim(),
+                dateStr = ad,
+                timeStr = at,
+                type = TransactionType.EXPENSE,
+                raw = sanitized,
+                confidence = 0.85f,
+                method = PaymentMethod.OTHER
+            )
+        }
+        matcher = airtelWithdrawRegex.matcher(sanitized)
+        if (matcher.find()) {
+            val (ad, at) = airtelDate()
+            return buildPending(
+                code = matcher.group(3),
+                amountStr = matcher.group(1),
+                party = (matcher.group(2) ?: "Airtel agent").trim().ifEmpty { "Airtel agent" },
+                dateStr = ad,
+                timeStr = at,
+                type = TransactionType.EXPENSE,
+                raw = sanitized,
+                confidence = 0.85f,
+                method = PaymentMethod.OTHER
+            )
+        }
+        matcher = airtelDepositRegex.matcher(sanitized)
+        if (matcher.find()) {
+            val (ad, at) = airtelDate()
+            return buildPending(
+                code = matcher.group(2),
+                amountStr = matcher.group(1),
+                party = "Airtel deposit",
+                dateStr = ad,
+                timeStr = at,
+                type = TransactionType.INCOME,
+                raw = sanitized,
+                confidence = 0.85f,
+                method = PaymentMethod.OTHER
+            )
+        }
+        matcher = airtelAirtimeRegex.matcher(sanitized)
+        if (matcher.find()) {
+            val (ad, at) = airtelDate()
+            return buildPending(
+                code = matcher.group(2),
+                amountStr = matcher.group(1),
+                party = "Airtel",
+                dateStr = ad,
+                timeStr = at,
+                type = TransactionType.EXPENSE,
+                raw = sanitized,
+                confidence = 0.85f,
+                method = PaymentMethod.OTHER
+            )?.copy(category = "Airtime")
+        }
+        matcher = airtelBundleRegex.matcher(sanitized)
+        if (matcher.find()) {
+            val (ad, at) = airtelDate()
+            return buildPending(
+                code = matcher.group(3),
+                amountStr = matcher.group(2),
+                party = "Airtel Data",
+                dateStr = ad,
+                timeStr = at,
+                type = TransactionType.EXPENSE,
+                raw = sanitized,
+                confidence = 0.85f,
+                method = PaymentMethod.OTHER
+            )?.copy(category = "Data")
         }
 
 
@@ -1269,12 +1392,19 @@ private val balanceLooseRegex = Pattern.compile(
     "(?i)^\\s*KSh\\s*([0-9][0-9,]*(?:\\.[0-9]+)?)\\s*$"
 )
 private val balanceBlocklist = listOf("fuliza", "loan", "deni", "madeni", "bill", "fees", "overdue", "owed", "m-shwari", "mshwari")
+// Airtel tail ("Balance: KSh4,000.00") — tried before the loose fallback so a
+// bare-amount SMS never steals an Airtel balance read.
+private val airtelBalanceRegex = Pattern.compile(
+    "(?i)Balance:\\s*(?:KSh|KES|Ksh)?\\s*([0-9][0-9,]*(?:\\.[0-9]+)?)"
+)
 
 fun parseBalance(smsBody: String): Double? {
     return try {
         val clean = smsBody.replace("\n", " ")
         val m = balanceRegex.matcher(clean)
         if (m.find()) return m.group(1)?.replace(",", "")?.toDoubleOrNull()
+        val ma = airtelBalanceRegex.matcher(clean)
+        if (ma.find()) return ma.group(1)?.replace(",", "")?.toDoubleOrNull()
         val low = clean.lowercase()
         if (balanceBlocklist.any { low.contains(it) }) return null
         val m2 = balanceLooseRegex.matcher(clean)
