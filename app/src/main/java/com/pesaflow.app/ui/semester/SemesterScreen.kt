@@ -39,6 +39,15 @@ fun SemesterScreen(viewModel: FinanceViewModel, onNavigate: (String) -> Unit = {
     var roommates by remember { mutableStateOf(2) }
     var fare by remember { mutableStateOf("") }
     var commuteDays by remember { mutableStateOf("5") }
+    // Autofill from the Transport budget already set (onboarding or scan) —
+    // the daily-fare question must never arrive with a blank box twice.
+    val transportMonthly = budgets.firstOrNull { it.category == "Transport" && it.type == BudgetType.MONTHLY }?.limitAmount
+    LaunchedEffect(transportMonthly) {
+        if (fare.isBlank() && (transportMonthly ?: 0.0) > 0) {
+            val days = commuteDays.toIntOrNull()?.takeIf { it > 0 } ?: 5
+            fare = (transportMonthly!! / 2 / days / 4.33).toInt().toString()
+        }
+    }
     var showChamaDialog by remember { mutableStateOf(false) }
     val chamas by viewModel.chamaGroups.collectAsState()
     val context = LocalContext.current
@@ -224,6 +233,14 @@ fun SemesterScreen(viewModel: FinanceViewModel, onNavigate: (String) -> Unit = {
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     val monthlyTransport = (fare.toDoubleOrNull() ?: 0.0) * 2 * (commuteDays.toIntOrNull() ?: 0) * 4.33
+                    if ((transportMonthly ?: 0.0) > 0) {
+                        Text(
+                            "Current Transport budget: KSh ${transportMonthly!!.toInt()}/month",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             "≈ KSh ${monthlyTransport.toInt()}/month",
@@ -231,7 +248,9 @@ fun SemesterScreen(viewModel: FinanceViewModel, onNavigate: (String) -> Unit = {
                             fontWeight = FontWeight.Bold
                         )
                         Button(
-                            onClick = { viewModel.addBudget("Transport", monthlyTransport, com.pesaflow.app.data.models.BudgetType.MONTHLY) },
+                            // Upsert, never insert: repeated taps update the one
+                            // Transport envelope instead of stacking duplicates.
+                            onClick = { viewModel.upsertBudget("Transport", monthlyTransport, BudgetType.MONTHLY) },
                             enabled = monthlyTransport > 0
                         ) { Text("Set Budget") }
                     }

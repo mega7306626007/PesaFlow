@@ -81,16 +81,13 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
     var name by rememberSaveable { mutableStateOf("") }
     var nickname by rememberSaveable { mutableStateOf("") }
     var university by rememberSaveable { mutableStateOf("") }
-    var campus by rememberSaveable { mutableStateOf("") }
     var semester by rememberSaveable { mutableStateOf("1") }
 
     // Step 2: funding
     var fundSource by rememberSaveable { mutableStateOf("HELB") }
-    // HELB repeats every semester for most students — carry the tranches
-    // forward instead of re-asking each term.
-    var helbPerSem by rememberSaveable { mutableStateOf("Yes") }
-    var helb1 by rememberSaveable { mutableStateOf("") }
-    var helb2 by rememberSaveable { mutableStateOf("") }
+    // One HELB figure per semester — the old tranche split fed the same sum
+    // downstream, so it asked twice for one number.
+    var helbSem by rememberSaveable { mutableStateOf("") }
     var pocket by rememberSaveable { mutableStateOf("") }
     var monthlyBudget by rememberSaveable { mutableStateOf("") }
     var foodBudget by rememberSaveable { mutableStateOf("") }
@@ -99,18 +96,15 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
     var showPicker by rememberSaveable { mutableStateOf(false) }
     val pickerState = rememberDatePickerState(initialSelectedDateMillis = endMillis)
 
-    // Step 3 (new): tell us about you — 10 quick questions that seed
+    // Step 3 (new): tell us about you — 5 quick questions that seed
     // budgets, goals and first-run advice. All optional, all skippable.
-    var dailySpendGuess by rememberSaveable { mutableStateOf("") }
-    var monthlyIncomeGuess by rememberSaveable { mutableStateOf("") }
+    // Every answer below is consumed downstream (budget, goal, income or
+    // persona) — nothing here is write-only.
     var sponsorMonthly by rememberSaveable { mutableStateOf("") }
     var rentGuess by rememberSaveable { mutableStateOf("") }
     var transportDaily by rememberSaveable { mutableStateOf("") }
-    var cookStyle by rememberSaveable { mutableStateOf("Both") }
     var airtimeWeekly by rememberSaveable { mutableStateOf("") }
-    var topWorry by rememberSaveable { mutableStateOf("Food") }
     var saveTarget by rememberSaveable { mutableStateOf("") }
-    var inChama by rememberSaveable { mutableStateOf("No") }
     // Home setup wires the whole app: budgets, meal planner, transport.
     // Six real setups — rent is not universal, cooking moves Food most.
     var homeKind by rememberSaveable { mutableStateOf("Hostel") }
@@ -218,27 +212,22 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                             FilterChip(selected = university == u, onClick = { university = u }, label = { Text(u) })
                         }
                     }
-                    OutlinedTextField(value = university, onValueChange = { university = it }, label = { Text("Or type university") }, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(value = campus, onValueChange = { campus = it }, label = { Text("Campus (e.g. Main)") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = university, onValueChange = { university = it }, label = { Text("University / campus (e.g. UoN Main)") }, modifier = Modifier.fillMaxWidth())
                     OutlinedTextField(value = semester, onValueChange = { semester = it }, label = { Text("Current semester") }, modifier = Modifier.fillMaxWidth())
                 }
                 1 -> {
                     StepArt(R.drawable.ob_tellus)
                     Text("Tell us about you 📝", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text(
-                        "10 quick guesses — they pre-fill your budgets and goals. Skip anything, estimates are perfect.",
+                        "5 quick guesses — they pre-fill your budgets and goals. Skip anything, estimates are perfect.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    OutlinedTextField(value = dailySpendGuess, onValueChange = { dailySpendGuess = it }, label = { Text("1 · Spend in a day? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
-                    Text("→ becomes your monthly budget (×30) if you skip the money step.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    OutlinedTextField(value = monthlyIncomeGuess, onValueChange = { monthlyIncomeGuess = it }, label = { Text("2 · Total in per month? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
-                    Text("→ opening upkeep in your ledger + the calculator's base.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    OutlinedTextField(value = sponsorMonthly, onValueChange = { sponsorMonthly = it }, label = { Text("3 · From home/sponsors monthly? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
-                    Text("→ same — home money lands as ledger income you can track.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    OutlinedTextField(value = rentGuess, onValueChange = { rentGuess = it }, label = { Text("4 · Rent/hostel per month? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = sponsorMonthly, onValueChange = { sponsorMonthly = it }, label = { Text("1 · Monthly upkeep from home? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                    Text("→ lands as ledger income + a sponsor source you can track.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    OutlinedTextField(value = rentGuess, onValueChange = { rentGuess = it }, label = { Text("2 · Rent/hostel per month? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
                     Text("→ your Rent budget + Bills watch.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    OutlinedTextField(value = transportDaily, onValueChange = { transportDaily = it }, label = { Text("5 · Transport per day? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = transportDaily, onValueChange = { transportDaily = it }, label = { Text("3 · Transport per day? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
                     Text("→ Transport budget (×30) + commuter weight in the calculator.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("Where do you stay? 🏠", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -278,31 +267,10 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Text("6 · Mostly…?", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("Mostly cook", "Both", "Mostly buy").forEach { s ->
-                            FilterChip(selected = cookStyle == s, onClick = { cookStyle = s }, label = { Text(s.take(8)) })
-                        }
-                    }
-                    OutlinedTextField(value = airtimeWeekly, onValueChange = { airtimeWeekly = it }, label = { Text("7 · Airtime + data per week? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = airtimeWeekly, onValueChange = { airtimeWeekly = it }, label = { Text("4 · Airtime + data per week? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
                     Text("→ your Airtime budget (×4).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("8 · Biggest money worry?", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("Fees", "Food", "Rent", "Saving").forEach { w ->
-                            FilterChip(selected = topWorry == w, onClick = { topWorry = w }, label = { Text(w) })
-                        }
-                    }
-                    OutlinedTextField(value = saveTarget, onValueChange = { saveTarget = it }, label = { Text("9 · Want to save monthly? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = saveTarget, onValueChange = { saveTarget = it }, label = { Text("5 · Want to save monthly? (KSh)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
                     Text("→ creates your Monthly savings goal with a daily pace.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("10 · In a chama?", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("No", "Yes").forEach { c ->
-                            FilterChip(selected = inChama == c, onClick = { inChama = c }, label = { Text(c) })
-                        }
-                    }
-                    if (inChama == "Yes") {
-                        Text("Nice — track it under More → Semester → Chama after setup. 🤝", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
                 }
                 2 -> {
                     StepArt(R.drawable.ob_money)
@@ -318,17 +286,8 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                         }
                     }
                     if (fundSource != "SELF") {
-                        OutlinedTextField(value = helb1, onValueChange = { helb1 = it }, label = { Text("HELB tranche 1 (KSh, optional)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
-                        OutlinedTextField(value = helb2, onValueChange = { helb2 = it }, label = { Text("HELB tranche 2 (KSh, optional)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
-                        Text("Same HELB every semester?", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("Yes", "No").forEach { h ->
-                                FilterChip(selected = helbPerSem == h, onClick = { helbPerSem = h }, label = { Text(if (h == "Yes") "Yes, repeat" else "One-off") })
-                            }
-                        }
-                        if (helbPerSem == "Yes") {
-                            Text("Carried forward each term — no re-typing next semester.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                        OutlinedTextField(value = helbSem, onValueChange = { helbSem = it }, label = { Text("HELB per semester (KSh, optional)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                        Text("Splits into monthly upkeep automatically — carried forward each term, no re-typing.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
                         Text("Self-sponsored 💪 — pocket cash + anything you log as income carries the semester.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -485,10 +444,9 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    // Same precedence as the finish block: typed > guess > M-Pesa scan.
+                    // Same precedence as the finish block: typed > M-Pesa scan.
                     val scan = scanResult
                     val revAll = monthlyBudget.toDoubleOrNull()?.takeIf { it > 0 }?.let { it to "you" }
-                        ?: dailySpendGuess.toDoubleOrNull()?.takeIf { it > 0 }?.let { it * 30 to "guess" }
                         ?: scan?.monthlyExpense?.takeIf { it > 0 }?.let { it to "M-Pesa scan" }
                     val revFood = foodBudget.toDoubleOrNull()?.takeIf { it > 0 }?.let { it to "you" }
                         ?: scan?.monthlyFor("Food")?.takeIf { it > 0 }?.let { it to "M-Pesa scan" }
@@ -499,7 +457,6 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                     val revAirtime = airtimeWeekly.toDoubleOrNull()?.takeIf { it > 0 }?.let { it * 4 to "you" }
                     val revPocket = pocket.toDoubleOrNull()?.takeIf { it > 0 }
                     val revUpkeep = sponsorMonthly.toDoubleOrNull()?.takeIf { it > 0 }
-                        ?: monthlyIncomeGuess.toDoubleOrNull()?.takeIf { it > 0 }
                     val revSave = saveTarget.toDoubleOrNull()?.takeIf { it > 0 }
                     val revFees = feesAmount.toDoubleOrNull()?.takeIf { it > 0 }
                     Card(
@@ -611,13 +568,13 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                             viewModel.saveUniversityProfile(
                                 UniversityProfile(
                                     universityName = university.trim(),
-                                    campus = campus.trim(),
+                                    campus = "",
                                     currentSemester = semester.toIntOrNull() ?: 1,
                                     academicYear = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR).toString(),
                                     semesterStartTimestamp = now,
                                     semesterEndTimestamp = endMillis,
                                     startingFunding = pocket.toDoubleOrNull() ?: 0.0,
-                                    helbExpected = if (fundSource == "SELF") 0.0 else (helb1.toDoubleOrNull() ?: 0.0) + (helb2.toDoubleOrNull() ?: 0.0),
+                                    helbExpected = if (fundSource == "SELF") 0.0 else helbSem.toDoubleOrNull() ?: 0.0,
                                     fundingSource = fundSource,
                                     feesAmount = feesAmount.toDoubleOrNull() ?: 0.0,
                                     feesDueDate = endMillis
@@ -628,7 +585,7 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                             // without re-asking on opening. Never duplicates: kinds
                             // already declared (above or earlier) are left alone.
                             val helbTotal = if (fundSource == "SELF") 0.0
-                            else (helb1.toDoubleOrNull() ?: 0.0) + (helb2.toDoubleOrNull() ?: 0.0)
+                            else helbSem.toDoubleOrNull() ?: 0.0
                             val existingKinds = viewModel.incomeSources.value.map { it.kind }.toSet()
                             val seededIncome = mutableListOf<IncomeSource>()
                             if (helbTotal > 0 && "HELB_MPESA" !in existingKinds && "HELB_BANK" !in existingKinds) {
@@ -682,12 +639,6 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                             }
                             foodBudget.toDoubleOrNull()?.takeIf { it > 0 }?.let {
                                 viewModel.upsertBudget("Food", it, BudgetType.MONTHLY)
-                            }
-                            // Seed from "tell us about you" guesses (only where the
-                            // money step above didn't already set the same budget).
-                            val dailyGuess = dailySpendGuess.toDoubleOrNull()?.takeIf { it > 0 }
-                            if (monthlyBudget.toDoubleOrNull() == null && dailyGuess != null) {
-                                viewModel.upsertBudget("ALL", dailyGuess * 30, BudgetType.MONTHLY)
                             }
                             rentGuess.toDoubleOrNull()?.takeIf { it > 0 }?.let {
                                 viewModel.upsertBudget("Rent", it, BudgetType.MONTHLY)
@@ -763,16 +714,19 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                             }
                             // Opening money hits the ledger: pocket cash + monthly upkeep
                             // become INCOME rows so budgets, net worth, reports, planners update.
-                            val upkeep = sponsorMonthly.toDoubleOrNull()?.takeIf { it > 0 }
-                                ?: monthlyIncomeGuess.toDoubleOrNull()?.takeIf { it > 0 } ?: 0.0
+                            val upkeep = sponsorMonthly.toDoubleOrNull()?.takeIf { it > 0 } ?: 0.0
                             viewModel.seedOpeningMoney(
                                 pocket.toDoubleOrNull() ?: 0.0,
                                 upkeep
                             )
                             viewModel.saveOnboardingAnswers(
-                                "daily=$dailySpendGuess|income=$monthlyIncomeGuess|sponsor=$sponsorMonthly" +
-                                    "|rent=$rentGuess|transport=$transportDaily|cook=$cookStyle" +
-                                    "|airtime=$airtimeWeekly|worry=$topWorry|save=$saveTarget|chama=$inChama" +
+                                // Only keys with live readers survive here. BudgetsScreen
+                                // cold-start reads rent/transport/airtime; MealPlanner
+                                // reads scan_food; parsePersona reads living/home/
+                                // commute/cooking/persona. Everything else proved
+                                // write-only and was cut.
+                                "rent=$rentGuess|transport=$transportDaily" +
+                                    "|airtime=$airtimeWeekly" +
                                     "|living=" + if (commuteLen == "Far" && homeKind != "Parents") "COMMUTER" else "HOSTEL" +
                                     "|home=" + homeKind.uppercase() +
                                     "|commute=" + commuteLen.uppercase() +
@@ -780,10 +734,7 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                                     "|persona=" + (personaOverride.takeIf { it.isNotBlank() } ?: com.pesaflow.app.ui.budgets.parsePersona(
                                         "home=" + homeKind.uppercase() + "|commute=" + commuteLen.uppercase() + "|cooking=" + if (cooksFood == "Yes") "YES" else "NO"
                                     ).name) +
-                                    "|helb_per_sem=" + helbPerSem +
-                                    (scanResult?.let { s -> "|scan_income=" + s.incomeTotal.toInt() + "|scan_expense=" + s.expenseTotal.toInt() + "|scan_food=" + s.monthlyFor("Food").toInt() } ?: "") +
-                                    (draft?.let { d -> "|ded_transport=" + (d.transportMonthly?.toInt() ?: 0) + "|ded_rent=" + (d.rentMonthly?.toInt() ?: 0) + "|ded_recur=" + d.recurring.size } ?: "") +
-                                    (breakOverrides.takeIf { it.isNotEmpty() }?.let { "|break_excluded=" + it.sorted().joinToString(",") } ?: "")
+                                    (scanResult?.let { s -> "|scan_food=" + s.monthlyFor("Food").toInt() } ?: "")
                             )
                             celebrate = true
                         }

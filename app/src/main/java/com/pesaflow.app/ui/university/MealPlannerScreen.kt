@@ -204,6 +204,11 @@ fun MealPlannerScreen(viewModel: FinanceViewModel) {
     val kitchenStock by viewModel.kitchenStock.collectAsState()
     val ledgerTxns by viewModel.allTransactions.collectAsState()
     val budgets by viewModel.budgets.collectAsState()
+    // Campus pack: real spots + plates near this university, if we know it.
+    val uniProfile by viewModel.universityProfile.collectAsState()
+    val campusSpots = remember(uniProfile?.universityName) {
+        com.pesaflow.app.data.meals.spotsFor(uniProfile?.universityName ?: "")
+    }
 
     val foodBudget = budgets.firstOrNull { it.category == "Food" }?.limitAmount
     var monthlyFoodInput by remember { mutableStateOf(foodBudget?.toInt()?.toString() ?: viewModel.let { scannedMonthlyFoodOf(it.getOnboardingAnswers()) }?.toString() ?: "6000") }
@@ -799,6 +804,31 @@ fun MealPlannerScreen(viewModel: FinanceViewModel) {
                             shape = RoundedCornerShape(16.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) { Text(if ("staples" in acked) "Added 10 ✓" else "Add 10 staples pack 🧺 — start in one tap") }
+                        // Campus pack: this school's actual spots and plates.
+                        // Skips plates already in My Foods; prices stay editable.
+                        if (campusSpots.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            val missing = campusSpots.filter { s ->
+                                mealItems.none { it.name.equals("${s.item} (${s.spot})", ignoreCase = true) }
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    missing.forEach {
+                                        viewModel.addMealItem("${it.item} (${it.spot})", it.mealType, it.price, it.component, "Buy")
+                                    }
+                                    ack("campus")
+                                },
+                                enabled = missing.isNotEmpty(),
+                                shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    if ("campus" in acked) "Added ✓"
+                                    else if (missing.isEmpty()) "${campusSpots.first().university} pack in ✓ — prices editable below"
+                                    else "Add ${campusSpots.first().university} campus pack 🍲 — ${missing.size} plates near you"
+                                )
+                            }
+                        }
                     } else {
                         Spacer(modifier = Modifier.height(8.dp))
                         OutlinedTextField(value = searchQuery, onValueChange = { searchQuery = it }, label = { Text("Search foods") }, modifier = Modifier.fillMaxWidth())

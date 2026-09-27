@@ -284,12 +284,16 @@ private fun PesaFlowAppNav(viewModel: FinanceViewModel) {
 
     Scaffold(
         floatingActionButton = {
+            // The + lives on Home and Transactions only — it must not follow
+            // the user onto Budgets, Insights or More.
+            if (selectedTab == 0 || selectedTab == 1) {
             FloatingActionButton(
                 onClick = { showSpeedDial = true },
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary
             ) {
                 Icon(Icons.Filled.Add, contentDescription = "Add transaction")
+            }
             }
         },
         bottomBar = {

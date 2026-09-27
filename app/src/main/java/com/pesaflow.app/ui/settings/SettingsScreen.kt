@@ -943,10 +943,12 @@ fun SettingsScreen(viewModel: FinanceViewModel) {
                                                 Persona.RENT_COMMUTE -> "RENTAL" to "FAR"
                                                 else -> "HOSTEL" to "NEAR"
                                             }
+                                            // Drop the old explicit persona= too — otherwise the
+                                            // onboarding pick wins forever and this tap looks ignored.
                                             val parts = cur.split("|").filterNot {
-                                                it.startsWith("home=") || it.startsWith("commute=") || it.startsWith("cooking=")
+                                                it.startsWith("home=") || it.startsWith("commute=") || it.startsWith("cooking=") || it.startsWith("persona=")
                                             }.toMutableList()
-                                            parts += listOf("home=$home", "commute=$commute", "cooking=$cooking")
+                                            parts += listOf("home=$home", "commute=$commute", "cooking=$cooking", "persona=${p.name}")
                                             viewModel.saveOnboardingAnswers(parts.joinToString("|"))
                                         },
                                         label = { Text(p.label) }
