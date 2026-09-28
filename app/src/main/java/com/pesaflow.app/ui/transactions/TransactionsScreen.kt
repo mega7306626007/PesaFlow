@@ -56,6 +56,9 @@ import com.pesaflow.app.data.ledger.CategoryMemory
 import com.pesaflow.app.data.ledger.MerchantMemory
 import com.pesaflow.app.data.models.Transaction
 import com.pesaflow.app.data.models.TransactionType
+import com.pesaflow.app.data.time.addDays
+import com.pesaflow.app.data.time.rollingDays
+import com.pesaflow.app.data.time.startOfDay
 import com.pesaflow.app.viewmodels.exactDuplicateGroups
 import com.pesaflow.app.R
 import com.pesaflow.app.ui.dashboard.QuickAddDialog
@@ -69,22 +72,14 @@ import com.pesaflow.app.ui.theme.toKSh
 import com.pesaflow.app.viewmodels.FinanceViewModel
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Date
 import java.util.Locale
-
-private fun dayStartOf(ts: Long): Long {
-    val c = Calendar.getInstance().apply { timeInMillis = ts }
-    c.set(Calendar.HOUR_OF_DAY, 0); c.set(Calendar.MINUTE, 0)
-    c.set(Calendar.SECOND, 0); c.set(Calendar.MILLISECOND, 0)
-    return c.timeInMillis
-}
 
 private fun groupLabel(dayStart: Long, now: Long): String {
     val fmt = SimpleDateFormat("EEEE, d MMM", Locale.getDefault())
     return when (dayStart) {
-        dayStartOf(now) -> "TODAY"
-        dayStartOf(now) - 24L * 60 * 60 * 1000 -> "YESTERDAY"
+        startOfDay(now) -> "TODAY"
+        addDays(startOfDay(now), -1) -> "YESTERDAY"
         else -> fmt.format(Date(dayStart)).uppercase(Locale.getDefault())
     }
 }
@@ -112,10 +107,12 @@ fun TransactionsScreen(
     var confirmBulk by remember { mutableStateOf(false) }
     val now = System.currentTimeMillis()
     val sorted = remember(transactions, typeFilter, merchantQuery, rangeDays) {
+        // Range chips cover whole calendar days: the old now - n*24h cutoff
+        // sliced the earliest day at the current time-of-day.
         val cutoff = when (rangeDays) {
-            0 -> dayStartOf(System.currentTimeMillis())
+            0 -> startOfDay(System.currentTimeMillis())
             null -> 0L
-            else -> System.currentTimeMillis() - rangeDays!! * 24L * 60 * 60 * 1000
+            else -> rollingDays(System.currentTimeMillis(), rangeDays!!).startInclusive
         }
         transactions
             .filter { typeFilter == null || it.type.name == typeFilter }
@@ -124,7 +121,7 @@ fun TransactionsScreen(
             .sortedByDescending { it.dateTimestamp }
     }
     val orderedGroups = remember(sorted, oldestFirst) {
-        val g = sorted.groupBy { dayStartOf(it.dateTimestamp) }.toSortedMap(compareByDescending { it })
+        val g = sorted.groupBy { startOfDay(it.dateTimestamp) }.toSortedMap(compareByDescending { it })
         if (oldestFirst) g.toSortedMap(compareBy { it }) else g
     }
     // One share engine: footer shares the view, bulk bar shares the selection.
@@ -395,13 +392,14 @@ fun TransactionsScreen(
                 val dayMs = 24L * 60 * 60 * 1000
                 val last14 = remember(sorted) {
                     val now = System.currentTimeMillis()
-                    (0 until 14).map { i ->
-                        val d0 = dayStartOf(now - i * dayMs)
+                    // Strict [day, next-day) buckets: the old ..(d0 + dayMs)
+                    // range double-counted any row stamped exactly at midnight.
+                    rollingDays(now, 14).days().map { d0 ->
                         sorted.filter {
                             it.type == TransactionType.EXPENSE && !it.isSample &&
-                                it.dateTimestamp in d0..(d0 + dayMs)
+                                it.dateTimestamp >= d0 && it.dateTimestamp < d0 + dayMs
                         }.sumOf { it.amount }
-                    }.reversed()
+                    }
                 }
                 val peak14 = (last14.maxOrNull() ?: 0.0).coerceAtLeast(1.0)
                 Card(

@@ -32,6 +32,12 @@ import com.pesaflow.app.ui.analytics.ExpenditureGraphsCard
 import com.pesaflow.app.ui.analytics.HistoricalTrendLineChart
 import com.pesaflow.app.R
 import com.pesaflow.app.data.models.AppLanguage
+import com.pesaflow.app.data.time.addDays
+import com.pesaflow.app.data.time.changeVsPrevious
+import com.pesaflow.app.data.time.daysElapsedInWeek
+import com.pesaflow.app.data.time.inPastOrNow
+import com.pesaflow.app.data.time.previousWeekRange
+import com.pesaflow.app.data.time.thisWeekRange
 import com.pesaflow.app.ui.language.Copy4
 import com.pesaflow.app.ui.language.alertsTitle
 import com.pesaflow.app.ui.language.emptyReportsBody
@@ -180,20 +186,25 @@ fun VerdictHeroCard(
         else -> cal.getActualMaximum(java.util.Calendar.DAY_OF_MONTH)
     }
     val elapsed = when (tab) {
-        0, 1 -> windowDays
+        0 -> windowDays
+        // Calendar week to-date: Mon = 1, never a rolling 7.
+        1 -> daysElapsedInWeek(now)
         3, 4 -> windowDays
         else -> cal.get(java.util.Calendar.DAY_OF_MONTH)
     }
     val start = when (tab) {
         0 -> dayStartOf(now)
-        1 -> dayStartOf(now) - 6 * DAY_MS
+        1 -> thisWeekRange(now).startInclusive
         3 -> now - 120 * DAY_MS
         4 -> yearStartOf(now)
         else -> monthStartOf(now)
     }
-    val spent = transactions.filter { it.type == TransactionType.EXPENSE && !it.isSample && it.dateTimestamp >= start }.sumOf { it.amount }
+    val spent = transactions.filter { it.type == TransactionType.EXPENSE && !it.isSample && it.dateTimestamp >= start && it.dateTimestamp <= now }.sumOf { it.amount }
     val allLimit = budgets.firstOrNull { it.category == "ALL" }?.limitAmount ?: 0.0
-    val expected = if (allLimit > 0) allLimit * elapsed / windowDays else 0.0
+    // Weekly verdict paces the monthly budget by day (allLimit / 30): the old
+    // rolling-7 window compared a week's spend against the whole month.
+    val expected = if (allLimit > 0 && tab == 1) allLimit / 30 * elapsed
+        else if (allLimit > 0) allLimit * elapsed / windowDays else 0.0
     val under = spent <= expected
 
     Card(
@@ -472,15 +483,22 @@ fun DailyReportContent(transactions: List<Transaction>) {
 @Composable
 fun WeeklyReportContent(transactions: List<Transaction>) {
     val now = System.currentTimeMillis()
-    val start = dayStartOf(now) - 6 * DAY_MS
-    val week = transactions.filter { it.dateTimestamp >= start && !it.isSample }
-    val income = week.filter { it.type == TransactionType.INCOME }.sumOf { it.amount }
-    val expenses = week.filter { it.type == TransactionType.EXPENSE }.sumOf { it.amount }
-    val dailyPoints = (0..6).map { i ->
-        val d0 = dayStartOf(now) - (6 - i) * DAY_MS
-        week.filter { it.type == TransactionType.EXPENSE && it.dateTimestamp >= d0 && it.dateTimestamp < d0 + DAY_MS }.sumOf { it.amount }
+    // Calendar week to-date (Mon–today) vs the complete previous week.
+    // The old rolling last-7-days never matched the dashboard chart or the
+    // Sunday report, so three screens showed three different "weeks".
+    val week = thisWeekRange(now)
+    val prevWeek = previousWeekRange(now)
+    val elapsed = daysElapsedInWeek(now).coerceAtLeast(1)
+    fun inWeekToDate(ts: Long) = ts in week && inPastOrNow(ts, now)
+    val weekTx = transactions.filter { inWeekToDate(it.dateTimestamp) && !it.isSample }
+    val income = weekTx.filter { it.type == TransactionType.INCOME }.sumOf { it.amount }
+    val expenses = weekTx.filter { it.type == TransactionType.EXPENSE }.sumOf { it.amount }
+    val prevExpenses = transactions.filter { it.type == TransactionType.EXPENSE && !it.isSample && it.dateTimestamp in prevWeek }.sumOf { it.amount }
+    val weekVsPrev = changeVsPrevious(expenses, prevExpenses)
+    val dailyPoints = week.days().filter { it <= now }.map { d0 ->
+        weekTx.filter { it.type == TransactionType.EXPENSE && it.dateTimestamp >= d0 && it.dateTimestamp < addDays(d0, 1) }.sumOf { it.amount }
     }
-    val top = week.filter { it.type == TransactionType.EXPENSE }
+    val top = weekTx.filter { it.type == TransactionType.EXPENSE }
         .groupBy { it.category }.mapValues { e -> e.value.sumOf { it.amount } }
         .maxByOrNull { it.value }
 
@@ -498,27 +516,28 @@ fun WeeklyReportContent(transactions: List<Transaction>) {
             color = MaterialTheme.colorScheme.onBackground
         )
         Text(
-            "+ KSh ${income.toInt()} in · avg KSh ${(expenses / 7).toInt()}/day" +
-                (top?.let { " · top: ${it.key} KSh ${it.value.toInt()}" } ?: ""),
+            "+ KSh ${income.toInt()} in · avg KSh ${(expenses / elapsed).toInt()}/day" +
+                (top?.let { " · top: ${it.key} KSh ${it.value.toInt()}" } ?: "") +
+                (weekVsPrev?.let { " · ${if (it > 0) "up $it%" else "down ${-it}%"} vs last week (KSh ${prevExpenses.toInt()})" } ?: ""),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        if (week.any { it.type == TransactionType.EXPENSE }) {
+        if (weekTx.any { it.type == TransactionType.EXPENSE }) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("7-day spending trend", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("This week's daily spend (Mon–today)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     HistoricalTrendLineChart(
                         points = dailyPoints,
-                        chartDescription = "7-day spending trend, oldest to newest."
+                        chartDescription = "This week's daily spend, oldest to newest."
                     )
                 }
             }
         } else {
-            Text("No spending in the last 7 days.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("No spending this week yet.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

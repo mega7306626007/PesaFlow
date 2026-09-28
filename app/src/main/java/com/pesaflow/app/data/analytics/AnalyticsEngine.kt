@@ -2,6 +2,10 @@ package com.pesaflow.app.data.analytics
 
 import com.pesaflow.app.data.models.Transaction
 import com.pesaflow.app.data.models.TransactionType
+import com.pesaflow.app.data.time.addDays
+import com.pesaflow.app.data.time.mondayIndex
+import com.pesaflow.app.data.time.rollingDays
+import com.pesaflow.app.data.time.startOfWeek
 import java.util.Calendar
 
 /**
@@ -79,10 +83,10 @@ fun buildAnalyticsReport(
     periodDays: Int = 30,
     now: Long = System.currentTimeMillis()
 ): AnalyticsReport {
-    val since = now - periodDays * 24L * 60 * 60 * 1000
-    val window = allTxs.filter { it.dateTimestamp >= since && it.dateTimestamp <= now }
-    val expenses = window.filter { it.type == TransactionType.EXPENSE && !it.isSample }
-    val incomes = window.filter { it.type == TransactionType.INCOME && !it.isSample }
+    val window = rollingDays(now, periodDays.coerceAtLeast(1))
+    val inWindow = allTxs.filter { it.dateTimestamp in window && it.dateTimestamp <= now }
+    val expenses = inWindow.filter { it.type == TransactionType.EXPENSE && !it.isSample }
+    val incomes = inWindow.filter { it.type == TransactionType.INCOME && !it.isSample }
     val totalSpent = expenses.sumOf { it.amount }
     val totalIncome = incomes.sumOf { it.amount }
 
@@ -106,7 +110,7 @@ fun buildAnalyticsReport(
         )
     }.filter { it.count > 0 }
     // Trend: compare last half vs first half of the period.
-    val mid = since + (periodDays / 2) * 24L * 60 * 60 * 1000
+    val mid = addDays(window.startInclusive, periodDays / 2)
     val (recent, older) = expenses.partition { it.dateTimestamp >= mid }
     summaries.forEach { s ->
         val recentTotal = byCat[s.category]!!.filter { it.dateTimestamp >= mid }.sumOf { it.amount }
@@ -130,33 +134,28 @@ fun buildAnalyticsReport(
         })
     }.sortedBy { it.monthId }
 
-    // Heatmap: 8 weeks × 7 weekdays (Mon-first).
+    // Heatmap: calendar weeks × 7 weekdays (Mon-first). Rows run newest
+    // week first and labels match row-for-row — the old rolling-week rows
+    // mixed mid-day buckets with true weekdays and mislabelled every row.
     val heatmapWeeks = AnalyticsReport.Companion.HEATMAP_WEEKS.coerceAtMost(if (periodDays > 0) (periodDays / 7) else 8)
     val grid = Array(heatmapWeeks) { DoubleArray(7) { 0.0 } }
-    val weekLabels = mutableListOf<String>()
-    val dayOfWeekOffset = (Calendar.getInstance().get(Calendar.DAY_OF_WEEK) + 5) % 7 // Mon=0
+    val weekStarts = (0 until heatmapWeeks).map { addDays(startOfWeek(now), -7 * it) }
+    val weekLabels = weekStarts.map { start ->
+        val cal = Calendar.getInstance().apply { timeInMillis = start }
+        "%02d-%02d".format(cal.get(Calendar.DAY_OF_MONTH), cal.get(Calendar.MONTH) + 1)
+    }
     expenses.forEach { tx ->
-        val cal = Calendar.getInstance().apply { timeInMillis = tx.dateTimestamp }
-        val daysAgo = (now - tx.dateTimestamp) / (24L * 60 * 60 * 1000)
-        val weekIdx = (daysAgo / 7).toInt()
-        val dow = ((cal.get(Calendar.DAY_OF_WEEK) + 5) % 7) // Mon=0
-        if (weekIdx < heatmapWeeks && dow < 7) {
-            grid[weekIdx][dow] += tx.amount
+        val weekIdx = weekStarts.indexOf(startOfWeek(tx.dateTimestamp))
+        if (weekIdx >= 0) {
+            grid[weekIdx][mondayIndex(tx.dateTimestamp)] += tx.amount
         }
     }
-    for (w in 0 until heatmapWeeks) {
-        val start = now - (w * 7 + 6) * 24L * 60 * 60 * 1000
-        val cal = Calendar.getInstance().apply { timeInMillis = start }
-        weekLabels.add("%02d-%02d".format(cal.get(Calendar.DAY_OF_MONTH), cal.get(Calendar.MONTH) + 1))
-    }
-    weekLabels.reverse()
 
     // Weekday profile (Mon-first, average spend per weekday).
     val weekdaySpend = DoubleArray(7)
     val weekdayCount = IntArray(7)
     expenses.forEach { tx ->
-        val cal = Calendar.getInstance().apply { timeInMillis = tx.dateTimestamp }
-        val dow = (cal.get(Calendar.DAY_OF_WEEK) + 5) % 7
+        val dow = mondayIndex(tx.dateTimestamp)
         weekdaySpend[dow] += tx.amount
         weekdayCount[dow]++
     }

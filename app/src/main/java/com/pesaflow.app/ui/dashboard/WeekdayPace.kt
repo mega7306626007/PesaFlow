@@ -2,6 +2,7 @@ package com.pesaflow.app.ui.dashboard
 
 import com.pesaflow.app.data.models.TransactionType
 import com.pesaflow.app.data.parsers.LedgerRow
+import com.pesaflow.app.data.time.startOfDay
 import java.util.Calendar
 
 // Weekday-aware pacing: Saturdays that run hot earn a bigger slice, quiet
@@ -50,8 +51,9 @@ fun weekdayProfile(
     rows.forEach {
         if (it.type != TransactionType.EXPENSE || it.amount <= 0) return@forEach
         // Bucket-consistent window: a row counts for sums AND activity only
-        // when its day-bucket is inside — no partial edge days on either side.
-        val dayIdx = ((now - it.ts) / PACE_DAY_MS).toInt()
+        // when its calendar day is inside — the old (now - ts) / 24h bucket
+        // misfiled edge-day rows whenever the time-of-day differed.
+        val dayIdx = ((startOfDay(now) - startOfDay(it.ts)) / PACE_DAY_MS).toInt()
         if (dayIdx < 0 || dayIdx >= windowDays) return@forEach
         sums[weekdayIndex(it.ts)] += it.amount
         activeSeen[dayIdx] = true

@@ -2,6 +2,9 @@ package com.pesaflow.app.parsers
 
 import com.pesaflow.app.data.models.TransactionSource
 import com.pesaflow.app.data.models.TransactionType
+import com.pesaflow.app.data.time.inPastOrNow
+import com.pesaflow.app.data.time.previousWeekRange
+import com.pesaflow.app.data.time.thisWeekRange
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -18,6 +21,15 @@ class NotificationLogicTest {
 
     private val day = 24L * 60 * 60 * 1000
     private fun daysAgo(n: Int) = System.currentTimeMillis() - n * day
+    /** Fixed local datetime (2026-09-07 is a Monday). Relative now - n*day
+     * construction is weekday-flaky against calendar weeks, so Sunday-report
+     * tests pin real dates. */
+    private fun at(y: Int, m: Int, d: Int, h: Int = 12, min: Int = 0): Long {
+        return java.util.Calendar.getInstance().apply {
+            set(y, m, d, h, min, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }.timeInMillis
+    }
     private fun startOfDay() = java.util.Calendar.getInstance().apply {
         set(java.util.Calendar.HOUR_OF_DAY, 0)
         set(java.util.Calendar.MINUTE, 0)
@@ -69,24 +81,29 @@ class NotificationLogicTest {
 
     @Test
     fun `sunday report shows week summary and week-over-week change`() {
-        val now = System.currentTimeMillis()
-        val weekStart = now - 7 * day
-        val prevWeekStart = weekStart - 7 * day
+        // Sunday 2026-09-13 15:00 local: current week Mon Sep 7 - Sun Sep 13,
+        // previous week Mon Aug 31 - Sun Sep 6. Midnight edges must not leak.
+        val now = at(2026, java.util.Calendar.SEPTEMBER, 13, 15, 0)
+        val week = thisWeekRange(now)
+        val prevWeek = previousWeekRange(now)
         val txs = listOf(
-            TestTx(500.0, TransactionType.EXPENSE, "Food", now - 1 * day),
-            TestTx(300.0, TransactionType.EXPENSE, "Transport", now - 2 * day),
-            TestTx(200.0, TransactionType.EXPENSE, "Food", now - 3 * day),
-            TestTx(100.0, TransactionType.EXPENSE, "Airtime", now - 8 * day, TransactionSource.MPESA_SMS),
-            TestTx(150.0, TransactionType.EXPENSE, "Shopping", now - 9 * day),
-            TestTx(1000.0, TransactionType.INCOME, "Salary", now - 1 * day)
+            TestTx(500.0, TransactionType.EXPENSE, "Food", at(2026, java.util.Calendar.SEPTEMBER, 8)),
+            TestTx(300.0, TransactionType.EXPENSE, "Transport", at(2026, java.util.Calendar.SEPTEMBER, 10, 9, 30)),
+            TestTx(200.0, TransactionType.EXPENSE, "Food", at(2026, java.util.Calendar.SEPTEMBER, 12, 20, 15)),
+            TestTx(50.0, TransactionType.EXPENSE, "Food", at(2026, java.util.Calendar.SEPTEMBER, 7, 0, 0)),
+            TestTx(100.0, TransactionType.EXPENSE, "Airtime", at(2026, java.util.Calendar.SEPTEMBER, 1), TransactionSource.MPESA_SMS),
+            TestTx(150.0, TransactionType.EXPENSE, "Shopping", at(2026, java.util.Calendar.SEPTEMBER, 3, 18, 0)),
+            TestTx(25.0, TransactionType.EXPENSE, "Food", at(2026, java.util.Calendar.SEPTEMBER, 6, 23, 59)),
+            TestTx(1000.0, TransactionType.INCOME, "Salary", at(2026, java.util.Calendar.SEPTEMBER, 9, 8, 0))
         )
-        val weekSpent = txs.filter { it.type == TransactionType.EXPENSE && it.dateTimestamp >= weekStart }.sumOf { it.amount }
-        val prevWeekSpent = txs.filter { it.type == TransactionType.EXPENSE && it.dateTimestamp >= prevWeekStart && it.dateTimestamp < weekStart }.sumOf { it.amount }
-        val mpesaWeek = txs.filter { it.type == TransactionType.EXPENSE && it.dateTimestamp >= weekStart && it.source == TransactionSource.MPESA_SMS }.sumOf { it.amount }
-        val weekIncome = txs.filter { it.type == TransactionType.INCOME && it.dateTimestamp >= weekStart }.sumOf { it.amount }
+        fun inWeek(t: TestTx) = t.dateTimestamp in week && inPastOrNow(t.dateTimestamp, now)
+        val weekSpent = txs.filter { it.type == TransactionType.EXPENSE && inWeek(it) }.sumOf { it.amount }
+        val prevWeekSpent = txs.filter { it.type == TransactionType.EXPENSE && it.dateTimestamp in prevWeek }.sumOf { it.amount }
+        val mpesaWeek = txs.filter { it.type == TransactionType.EXPENSE && inWeek(it) && it.source == TransactionSource.MPESA_SMS }.sumOf { it.amount }
+        val weekIncome = txs.filter { it.type == TransactionType.INCOME && inWeek(it) }.sumOf { it.amount }
 
-        assertEquals(1000.0, weekSpent, 0.001)
-        assertEquals(250.0, prevWeekSpent, 0.001)
+        assertEquals(1050.0, weekSpent, 0.001)
+        assertEquals(275.0, prevWeekSpent, 0.001)
         assertEquals(0.0, mpesaWeek, 0.001)
         assertEquals(1000.0, weekIncome, 0.001)
     }
@@ -94,14 +111,14 @@ class NotificationLogicTest {
 
     @Test
     fun `sunday report identifies top category`() {
-        val now = System.currentTimeMillis()
-        val weekStart = now - 7 * day
+        val now = at(2026, java.util.Calendar.SEPTEMBER, 13, 15, 0)
+        val week = thisWeekRange(now)
         val txs = listOf(
-            TestTx(500.0, TransactionType.EXPENSE, "Food", now - 1 * day),
-            TestTx(300.0, TransactionType.EXPENSE, "Food", now - 2 * day),
-            TestTx(100.0, TransactionType.EXPENSE, "Transport", now - 3 * day)
+            TestTx(500.0, TransactionType.EXPENSE, "Food", at(2026, java.util.Calendar.SEPTEMBER, 8)),
+            TestTx(300.0, TransactionType.EXPENSE, "Food", at(2026, java.util.Calendar.SEPTEMBER, 10)),
+            TestTx(100.0, TransactionType.EXPENSE, "Transport", at(2026, java.util.Calendar.SEPTEMBER, 9))
         )
-        val topCat = txs.filter { it.type == TransactionType.EXPENSE && it.dateTimestamp >= weekStart }
+        val topCat = txs.filter { it.type == TransactionType.EXPENSE && it.dateTimestamp in week && inPastOrNow(it.dateTimestamp, now) }
             .groupBy { it.category }.mapValues { e -> e.value.sumOf { it.amount } }
             .maxByOrNull { it.value }
 

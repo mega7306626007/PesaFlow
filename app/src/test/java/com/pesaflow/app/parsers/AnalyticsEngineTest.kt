@@ -107,4 +107,34 @@ class AnalyticsEngineTest {
         val r = buildAnalyticsReport(txs, 30, now)
         assertEquals(7, r.weekdayProfile.size)
     }
+
+    @Test
+    fun `heatmap rows are calendar weeks with matching labels`() {
+        // Sunday 2026-09-13 23:00 local: Monday 00:01 and Sunday 23:59 belong
+        // to the same calendar week, so they share row 0 at columns 0 and 6.
+        val sundayNight = Calendar.getInstance().apply {
+            set(2026, Calendar.SEPTEMBER, 13, 23, 59, 59)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        fun at(d: Int, h: Int, min: Int): Long {
+            return Calendar.getInstance().apply {
+                set(2026, Calendar.SEPTEMBER, d, h, min, 0)
+                set(Calendar.MILLISECOND, 0)
+            }.timeInMillis
+        }
+        val txs = listOf(
+            tx(100.0, "Food", at(7, 0, 1)),
+            tx(300.0, "Transport", at(13, 23, 59)),
+            tx(50.0, "Food", at(6, 23, 59))
+        )
+        val r = buildAnalyticsReport(txs, 30, sundayNight)
+        assertEquals(100.0, r.heatmap.grid[0][0], 0.001)
+        assertEquals(300.0, r.heatmap.grid[0][6], 0.001)
+        assertEquals(400.0, r.heatmap.grid[0].sum(), 0.001)
+        // The previous Sunday sits in the older row, and row 0's label is
+        // the Monday that starts it.
+        assertEquals(50.0, r.heatmap.grid[1].sum(), 0.001)
+        assertEquals("07-09", r.heatmap.weekLabels[0])
+        assertEquals(r.heatmap.weekLabels.size, r.heatmap.grid.size)
+    }
 }

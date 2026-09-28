@@ -30,6 +30,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pesaflow.app.data.models.BudgetType
 import com.pesaflow.app.data.parsers.LedgerRow
+import com.pesaflow.app.data.time.inPastOrNow
+import com.pesaflow.app.data.time.previousWeekRange
+import com.pesaflow.app.data.time.thisWeekRange
 import com.pesaflow.app.ui.analytics.BudgetRing
 import com.pesaflow.app.ui.theme.AtmoType
 
@@ -181,9 +184,16 @@ fun SafeToSpendCard(
             } else {
                 val weekBase = weeklyExplicit ?: (monthly?.div(30)?.times(7) ?: 0.0)
                 val weekTarget = (weekBase - planDaily * 7 - billDaily * 7).toInt().coerceAtLeast(0)
-                val weekStart = dayStart - 6 * day
-                val prevWeekSpend = spentIn(weekStart - 7 * day, weekStart)
-                val thisWeekSpend = spentIn(weekStart, Long.MAX_VALUE)
+                // Calendar weeks everywhere: this week to-date vs the complete
+                // previous week. The old rolling 7-day blocks drifted a day at
+                // a time and never matched the dashboard's own weekday chart.
+                val week = thisWeekRange(nowMs)
+                val prevWeek = previousWeekRange(nowMs)
+                val prevWeekSpend = spentIn(prevWeek.startInclusive, prevWeek.endExclusive)
+                val thisWeekSpend = transactions.filter {
+                    it.type == com.pesaflow.app.data.models.TransactionType.EXPENSE && !it.isSample &&
+                        it.dateTimestamp in week && inPastOrNow(it.dateTimestamp, nowMs)
+                }.sumOf { it.amount }.toInt()
                 val weekRollover = weekTarget - prevWeekSpend
                 val weekAllowance = weekTarget + weekRollover
                 val weekLeft = weekAllowance - thisWeekSpend
@@ -212,7 +222,7 @@ fun SafeToSpendCard(
                         weekAllowance < 100 * 7 ->
                             "KSh $weekAllowance this week (~KSh ${(weekAllowance / 7).toInt()}/day) — prioritize: Food KSh ${(weekAllowance * 0.6).toInt()} + essentials KSh ${(weekAllowance * 0.4).toInt()}. 💪"
                         prevWeekSpend <= weekTarget ->
-                            "Last 7 days before this week cost KSh $prevWeekSpend vs KSh $weekTarget target — nice! 🎉 This week you can spend KSh $weekAllowance."
+                            "Last week cost KSh $prevWeekSpend vs KSh $weekTarget target — nice! 🎉 This week you can spend KSh $weekAllowance."
                         else ->
                             "Last week went KSh ${-weekRollover} over (KSh $prevWeekSpend vs KSh $weekTarget). This week tighten to KSh $weekAllowance.$planNote"
                     } + if (weekLeft < 0 && weekAllowance > 0) " You've passed the weekly allowance — pause till next week. ⏸️" else "",

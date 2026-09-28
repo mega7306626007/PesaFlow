@@ -3,6 +3,8 @@ package com.pesaflow.app.data.academic
 import com.pesaflow.app.data.models.PendingTransaction
 import com.pesaflow.app.data.models.Transaction
 import com.pesaflow.app.data.models.TransactionType
+import com.pesaflow.app.data.time.startOfDay as canonicalDayStart
+import com.pesaflow.app.data.time.startOfWeek as canonicalWeekStart
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -292,21 +294,9 @@ fun PendingTransaction.asTransaction(): Transaction = Transaction(
     confirmed = false
 )
 
-private fun dayStart(ts: Long): Long {
-    val c = Calendar.getInstance().apply { timeInMillis = ts }
-    c.set(Calendar.HOUR_OF_DAY, 0)
-    c.set(Calendar.MINUTE, 0)
-    c.set(Calendar.SECOND, 0)
-    c.set(Calendar.MILLISECOND, 0)
-    return c.timeInMillis
-}
+private fun dayStart(ts: Long): Long = canonicalDayStart(ts)
 
-private fun weekStartMonday(ts: Long): Long {
-    val d = dayStart(ts)
-    val c = Calendar.getInstance().apply { timeInMillis = d }
-    val shift = (c.get(Calendar.DAY_OF_WEEK) + 5) % 7
-    return d - shift * DAY_MS
-}
+private fun weekStartMonday(ts: Long): Long = canonicalWeekStart(ts)
 
 // School days are observed, not assumed: days of the week with Transport
 // spend in at least half the observed weeks (min 2). Saturday counts if the

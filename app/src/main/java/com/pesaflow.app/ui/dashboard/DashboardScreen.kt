@@ -40,6 +40,7 @@ import com.pesaflow.app.data.models.Budget
 import com.pesaflow.app.data.models.BudgetType
 import com.pesaflow.app.data.models.TransactionType
 import com.pesaflow.app.data.prefs.AppPrefs
+import com.pesaflow.app.data.time.startOfWeek
 import com.pesaflow.app.ui.NavRoutes
 import com.pesaflow.app.ui.theme.categoryEmoji
 import com.pesaflow.app.ui.theme.ExplainChip
@@ -83,13 +84,10 @@ fun DashboardScreen(
     var weekdayScope by remember { mutableStateOf("week") }
     val weekdaySpending = remember(transactions, weekdayScope) {
         val cal = Calendar.getInstance()
-        val weekStart = (cal.clone() as Calendar).apply {
-            set(Calendar.DAY_OF_WEEK, firstDayOfWeek)
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }.timeInMillis
+        // Canonical Monday-start week: the old set(DAY_OF_WEEK, firstDayOfWeek)
+        // followed the device locale, so some phones charted Sun-start weeks
+        // while every insight assumed Monday.
+        val weekStart = startOfWeek(System.currentTimeMillis())
         val map = mutableMapOf("Mon" to 0.0, "Tue" to 0.0, "Wed" to 0.0, "Thu" to 0.0, "Fri" to 0.0, "Sat" to 0.0, "Sun" to 0.0)
         transactions.filter {
             it.type == TransactionType.EXPENSE && !it.isSample &&

@@ -2,6 +2,8 @@ package com.pesaflow.app.data.finance
 
 import com.pesaflow.app.data.models.Transaction
 import com.pesaflow.app.data.models.TransactionType
+import com.pesaflow.app.data.time.startOfDay
+import com.pesaflow.app.data.time.startOfWeek
 import java.util.Calendar
 
 // Behaviour engine (§13, Phase 8): what the ledger statistically observes,
@@ -43,13 +45,10 @@ fun observeSignals(
     }
     // Days-per-week averaged over weeks that actually show movement —
     // dividing by the whole window would let one quiet month erase a habit.
-    fun weekStart(ts: Long): Long {
-        val d = ts - (ts % BEH_DAY_MS)
-        val c = Calendar.getInstance().apply { timeInMillis = d }
-        return d - ((c.get(Calendar.DAY_OF_WEEK) + 5) % 7) * BEH_DAY_MS
-    }
+    // Weeks are canonical Monday-start calendar weeks (see TimeWindows):
+    // the old UTC-midnight bucket split local days and broke grouping.
     fun daysPerWeek(txs: List<Transaction>): Double {
-        val byWeek = txs.groupBy { weekStart(it.dateTimestamp) }.filterValues { it.isNotEmpty() }
+        val byWeek = txs.groupBy { startOfWeek(it.dateTimestamp) }.filterValues { it.isNotEmpty() }
         if (byWeek.size < 2) return 0.0
         return byWeek.values.map { week ->
             week.map { dow(it.dateTimestamp) }.toSet().size
@@ -62,14 +61,14 @@ fun observeSignals(
         }.toSet().size
     val foodDays = rows.filter {
         it.type == TransactionType.EXPENSE && it.category.equals("Food", ignoreCase = true)
-    }.groupBy { it.dateTimestamp / BEH_DAY_MS }.mapValues { (_, l) -> l.sumOf { it.amount } }
+    }.groupBy { startOfDay(it.dateTimestamp) }.mapValues { (_, l) -> l.sumOf { it.amount } }
     return ObservedSignals(
         commuteDaysPerWeek = daysPerWeek(transport),
-        avgTransportDaily = if (transport.isEmpty()) 0.0 else transport.sumOf { it.amount } / transport.map { it.dateTimestamp / BEH_DAY_MS }.toSet().size.coerceAtLeast(1),
+        avgTransportDaily = if (transport.isEmpty()) 0.0 else transport.sumOf { it.amount } / transport.map { startOfDay(it.dateTimestamp) }.toSet().size.coerceAtLeast(1),
         activeDaysPerWeek = daysPerWeek(rows.filter { it.type == TransactionType.EXPENSE }),
         foodDailyAvg = if (foodDays.isEmpty()) 0.0 else foodDays.values.average(),
         incomeMonthsHit = months,
-        sampleDays = rows.map { it.dateTimestamp / BEH_DAY_MS }.toSet().size
+        sampleDays = rows.map { startOfDay(it.dateTimestamp) }.toSet().size
     )
 }
 

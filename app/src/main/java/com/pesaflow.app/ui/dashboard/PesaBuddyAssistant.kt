@@ -236,13 +236,16 @@ fun processUserInput(
     val early: String? = BuddyBrain.disambiguate(q)
     val txs = viewModel.allTransactions.value
     val nowCal = java.util.Calendar.getInstance()
+    val nowMs = nowCal.timeInMillis
     val dayStart = (nowCal.clone() as java.util.Calendar).apply {
         set(java.util.Calendar.HOUR_OF_DAY, 0)
         set(java.util.Calendar.MINUTE, 0)
         set(java.util.Calendar.SECOND, 0)
         set(java.util.Calendar.MILLISECOND, 0)
     }.timeInMillis
-    val weekStart = dayStart - 6L * 24 * 60 * 60 * 1000
+    // "This week" means the Monday-start calendar week, matching the
+    // dashboard chart and every insight — not a rolling 7 days.
+    val week = com.pesaflow.app.data.time.thisWeekRange(nowMs)
     fun inMonth(ts: Long): Boolean {
         val c = java.util.Calendar.getInstance().apply { timeInMillis = ts }
         return c.get(java.util.Calendar.YEAR) == nowCal.get(java.util.Calendar.YEAR) &&
@@ -252,7 +255,7 @@ fun processUserInput(
     val monthIncome = monthTx.filter { it.type == TransactionType.INCOME }.sumOf { it.amount }
     val monthExpense = monthTx.filter { it.type == TransactionType.EXPENSE }.sumOf { it.amount }
     val todaySpend = txs.filter { it.type == TransactionType.EXPENSE && !it.isSample && it.dateTimestamp >= dayStart }.sumOf { it.amount }
-    val weekSpend = txs.filter { it.type == TransactionType.EXPENSE && !it.isSample && it.dateTimestamp >= weekStart }.sumOf { it.amount }
+    val weekSpend = txs.filter { it.type == TransactionType.EXPENSE && !it.isSample && it.dateTimestamp in week && com.pesaflow.app.data.time.inPastOrNow(it.dateTimestamp, nowMs) }.sumOf { it.amount }
     val balance = viewModel.availableBalance.value
     val saved = viewModel.totalSavings.value
     val goals = viewModel.savingsGoals.value
@@ -308,7 +311,7 @@ fun processUserInput(
             else "Today ume-spend KSh ${todaySpend.toInt()} so far. Month total: KSh ${monthExpense.toInt()}."
 
         (q.contains("week") || q.contains("wiki")) && askedCat != null ->
-            "$askedCat this week: KSh ${txs.filter { it.type == TransactionType.EXPENSE && !it.isSample && it.dateTimestamp >= weekStart && it.category.equals(askedCat, ignoreCase = true) }.sumOf { it.amount }.toInt()}."
+            "$askedCat this week: KSh ${txs.filter { it.type == TransactionType.EXPENSE && !it.isSample && it.dateTimestamp in week && com.pesaflow.app.data.time.inPastOrNow(it.dateTimestamp, nowMs) && it.category.equals(askedCat, ignoreCase = true) }.sumOf { it.amount }.toInt()}."
 
         ((q.contains("yesterday") || q.contains("jana")) && askedCat != null) ->
             "Yesterday $askedCat: KSh ${txs.filter { it.type == TransactionType.EXPENSE && !it.isSample && it.dateTimestamp >= yesterdayStart && it.dateTimestamp < dayStart && it.category.equals(askedCat, ignoreCase = true) }.sumOf { it.amount }.toInt()}."
@@ -324,7 +327,8 @@ fun processUserInput(
             run {
                 if (txs.isEmpty()) "No data yet — log a week first."
                 else {
-                    val burn = if (weekSpend > 0) weekSpend / 7 else monthExpense / 30
+                    val elapsed = com.pesaflow.app.data.time.daysElapsedInWeek(nowMs).coerceAtLeast(1)
+                    val burn = if (weekSpend > 0) weekSpend / elapsed else monthExpense / 30
                     if (burn <= 0 || freeBalance <= 0) {
                         if (balance <= 0) "KSh ${balance.toInt()} left, no burn rate yet — keep logging."
                         else "KSh ${balance.toInt()} in, but KSh ${committed.toInt()} is already spoken for (bills + deni you owe) — free: KSh ${freeBalance.toInt()}."
@@ -342,7 +346,7 @@ fun processUserInput(
 
         q.contains("week") || q.contains("wiki") || q.contains("7 days") ->
             if (txs.isEmpty()) "No transactions recorded yet."
-            else "Last 7 days ume-spend roughly KSh ${weekSpend.toInt()}. That's about KSh ${(weekSpend / 7).toInt()} per day."
+            else "This week (Mon–today) ume-spend roughly KSh ${weekSpend.toInt()}. That's about KSh ${(weekSpend / com.pesaflow.app.data.time.daysElapsedInWeek(nowMs).coerceAtLeast(1)).toInt()} per day."
 
         q.contains("budget") || q.contains("bajeti") ->
             if (budget == null) "You haven't set a monthly budget yet — add one on the Budget tab (use category ALL) and I'll watch it for you."

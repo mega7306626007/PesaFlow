@@ -19,6 +19,15 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.pesaflow.app.data.database.AppDatabase
 import com.pesaflow.app.data.models.TransactionType
+import com.pesaflow.app.data.time.addDays
+import com.pesaflow.app.data.time.changeVsPrevious
+import com.pesaflow.app.data.time.inPastOrNow
+import com.pesaflow.app.data.time.previousRollingDays
+import com.pesaflow.app.data.time.previousWeekRange
+import com.pesaflow.app.data.time.rollingDays
+import com.pesaflow.app.data.time.thisWeekRange
+import com.pesaflow.app.data.time.todayRange
+import com.pesaflow.app.data.time.yesterdayRange
 import com.pesaflow.app.ui.language.langOf
 import com.pesaflow.app.ui.language.notifTitle
 import kotlinx.coroutines.flow.first
@@ -355,13 +364,6 @@ class DailySummaryWorker(appContext: Context, params: WorkerParameters) : Corout
             val db = AppDatabase.getDatabase(ctx)
             val txs = db.transactionDao().getAllTransactions().first()
             val now = System.currentTimeMillis()
-            val day = 24L * 60 * 60 * 1000
-            val c = java.util.Calendar.getInstance().apply { timeInMillis = now }
-            c.set(java.util.Calendar.HOUR_OF_DAY, 0)
-            c.set(java.util.Calendar.MINUTE, 0)
-            c.set(java.util.Calendar.SECOND, 0)
-            c.set(java.util.Calendar.MILLISECOND, 0)
-            val dayStart = c.timeInMillis
 
             fun isExpense(t: com.pesaflow.app.data.models.Transaction) = t.type == TransactionType.EXPENSE && !t.isSample
             val balance = txs.sumOf {
@@ -376,24 +378,28 @@ class DailySummaryWorker(appContext: Context, params: WorkerParameters) : Corout
 
             when (inputData.getString("kind") ?: "daily") {
                 "weekly" -> {
-                    val weekTx = txs.filter { isExpense(it) && it.dateTimestamp >= dayStart - 6 * day }
+                    // Rolling 7-day blocks, labelled honestly as "7 days": the
+                    // copy never claims a calendar week here.
+                    val cur = rollingDays(now, 7)
+                    val prevRange = previousRollingDays(now, 7)
+                    val weekTx = txs.filter { isExpense(it) && it.dateTimestamp in cur && inPastOrNow(it.dateTimestamp, now) }
                     val week = weekTx.sumOf { it.amount }
-                    val prev = txs.filter { isExpense(it) && it.dateTimestamp >= dayStart - 13 * day && it.dateTimestamp < dayStart - 6 * day }.sumOf { it.amount }
+                    val prev = txs.filter { isExpense(it) && it.dateTimestamp in prevRange }.sumOf { it.amount }
                     val topWeek = weekTx.groupBy { it.category }.mapValues { e -> e.value.sumOf { it.amount } }.maxByOrNull { it.value }
                     val weeklyBody = buildString {
                         append("Spent KSh ${week.toInt()} in 7 days · Balance KSh ${balance.toInt()}.")
                         topWeek?.let { append(" Top: ${it.key} ${it.value.toInt()}.") }
                         if (prev > 0) {
-                            val d = ((week - prev) / prev * 100).toInt()
+                            val d = changeVsPrevious(week, prev) ?: 0
                             append(if (d > 0) " Up $d% vs prior week." else " Down ${-d}% vs prior week. 👌")
                         }
                     }
                     NotificationHelper.show(ctx, 2, "Weekly recap 💰", weeklyBody.toString())
                 }
                 else -> {
-                    val todayTx = txs.filter { isExpense(it) && it.dateTimestamp >= dayStart }
+                    val todayTx = txs.filter { isExpense(it) && it.dateTimestamp in todayRange(now) }
                     val today = todayTx.sumOf { it.amount }
-                    val yesterday = txs.filter { isExpense(it) && it.dateTimestamp >= dayStart - day && it.dateTimestamp < dayStart }.sumOf { it.amount }
+                    val yesterday = txs.filter { isExpense(it) && it.dateTimestamp in yesterdayRange(now) }.sumOf { it.amount }
                     val topToday = todayTx.groupBy { it.category }.mapValues { e -> e.value.sumOf { it.amount } }.maxByOrNull { it.value }
                     val dailyBody = buildString {
                         append("Today KSh ${today.toInt()} · Balance KSh ${balance.toInt()}.")
@@ -700,36 +706,36 @@ class SundayReportWorker(appContext: Context, params: WorkerParameters) : Corout
             val db = AppDatabase.getDatabase(ctx)
             val txs = db.transactionDao().getAllTransactions().first()
             val now = System.currentTimeMillis()
-            val day = 24L * 60 * 60 * 1000
-            val weekStart = now - 7 * day
-            val prevWeekStart = weekStart - 7 * day
+            // Calendar weeks (Mon-start), never mid-day rolling windows: the old
+            // now - 7d boundary sliced the same local date across both weeks.
+            val week = thisWeekRange(now)
+            val prevWeek = previousWeekRange(now)
 
             fun isExpense(t: com.pesaflow.app.data.models.Transaction) = t.type == TransactionType.EXPENSE && !t.isSample
+            fun inWeek(t: com.pesaflow.app.data.models.Transaction) = t.dateTimestamp in week && inPastOrNow(t.dateTimestamp, now)
 
-            val weekSpent = txs.filter { isExpense(it) && it.dateTimestamp >= weekStart }.sumOf { it.amount }
-            val weekCount = txs.filter { isExpense(it) && it.dateTimestamp >= weekStart }.size
-            val prevWeekSpent = txs.filter { isExpense(it) && it.dateTimestamp >= prevWeekStart && it.dateTimestamp < weekStart }.sumOf { it.amount }
-            val weekIncome = txs.filter { it.type == TransactionType.INCOME && it.dateTimestamp >= weekStart }.sumOf { it.amount }
+            val weekSpent = txs.filter { isExpense(it) && inWeek(it) }.sumOf { it.amount }
+            val weekCount = txs.filter { isExpense(it) && inWeek(it) }.size
+            val prevWeekSpent = txs.filter { isExpense(it) && it.dateTimestamp in prevWeek }.sumOf { it.amount }
+            val weekIncome = txs.filter { it.type == TransactionType.INCOME && inWeek(it) }.sumOf { it.amount }
 
-            val mpesaWeek = txs.filter { isExpense(it) && it.dateTimestamp >= weekStart && it.source == com.pesaflow.app.data.models.TransactionSource.MPESA_SMS }.sumOf { it.amount }
+            val mpesaWeek = txs.filter { isExpense(it) && inWeek(it) && it.source == com.pesaflow.app.data.models.TransactionSource.MPESA_SMS }.sumOf { it.amount }
             val manualWeek = weekSpent - mpesaWeek
 
-            val topMpesa = txs.filter { isExpense(it) && it.dateTimestamp >= weekStart && it.source == com.pesaflow.app.data.models.TransactionSource.MPESA_SMS }
+            val topMpesa = txs.filter { isExpense(it) && inWeek(it) && it.source == com.pesaflow.app.data.models.TransactionSource.MPESA_SMS }
                 .groupBy { it.category }.mapValues { e -> e.value.sumOf { it.amount } }
                 .maxByOrNull { it.value }
 
             // Top-3 categories of the week
-            val top3 = txs.filter { isExpense(it) && it.dateTimestamp >= weekStart }
+            val top3 = txs.filter { isExpense(it) && inWeek(it) }
                 .groupBy { it.category }.mapValues { e -> e.value.sumOf { it.amount } }
                 .entries.sortedByDescending { it.value }.take(3)
 
-            // Priciest weekday of the rolling 7 days
-            val dayNames = listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
-            val priciestDay = (0..6).map { i ->
-                val d0 = weekStart + i * day
-                val sum = txs.filter { isExpense(it) && it.dateTimestamp >= d0 && it.dateTimestamp < d0 + day }.sumOf { it.amount }
-                val name = dayNames[java.util.Calendar.getInstance().apply { timeInMillis = d0 }.get(java.util.Calendar.DAY_OF_WEEK) - 1]
-                name to sum
+            // Priciest weekday of the calendar week (Mon-first, local days)
+            val dayNames = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+            val priciestDay = week.days().filter { it <= now }.map { d0 ->
+                val sum = txs.filter { isExpense(it) && it.dateTimestamp >= d0 && it.dateTimestamp < addDays(d0, 1) }.sumOf { it.amount }
+                dayNames[java.util.Calendar.getInstance().apply { timeInMillis = d0 }.get(java.util.Calendar.DAY_OF_WEEK).let { (it + 5) % 7 }] to sum
             }.maxByOrNull { it.second }
 
             // Week savings rate
@@ -737,7 +743,7 @@ class SundayReportWorker(appContext: Context, params: WorkerParameters) : Corout
 
             // Bills landing in the next 7 days
             val dueWeek = db.billDao().getAllBills().first()
-                .filter { it.status != "PAID" && it.dueDate in now..(now + 7 * day) }
+                .filter { it.status != "PAID" && it.dueDate in now..addDays(now, 7) }
             val dueWeekTotal = dueWeek.sumOf { it.amount }
 
             val pending = db.pendingTransactionDao().getAllPendingTransactions().first().size
@@ -747,7 +753,7 @@ class SundayReportWorker(appContext: Context, params: WorkerParameters) : Corout
                 if (weekIncome > 0) append(", income KSh ${weekIncome.toInt()}")
                 append(".")
                 if (prevWeekSpent > 0) {
-                    val change = ((weekSpent - prevWeekSpent) / prevWeekSpent * 100).toInt()
+                    val change = changeVsPrevious(weekSpent, prevWeekSpent) ?: 0
                     append(if (change > 0) " Up $change% vs last week." else " Down ${-change}% vs last week. 👌")
                 }
                 if (top3.isNotEmpty()) append(" Top: " + top3.joinToString(", ") { "${it.key} ${it.value.toInt()}" } + ".")
@@ -816,18 +822,8 @@ class DailyDigestWorker(appContext: Context, params: WorkerParameters) : Corouti
             val db = AppDatabase.getDatabase(ctx)
             val txs = db.transactionDao().getAllTransactions().first()
             val now = System.currentTimeMillis()
-            val cal = Calendar.getInstance().apply {
-                timeInMillis = now
-                add(Calendar.DAY_OF_MONTH, -1)
-                set(Calendar.HOUR_OF_DAY, 0)
-                set(Calendar.MINUTE, 0)
-                set(Calendar.SECOND, 0)
-                set(Calendar.MILLISECOND, 0)
-            }
-            val yesterdayStart = cal.timeInMillis
-            cal.add(Calendar.DAY_OF_MONTH, 1)
-            val yesterdayEnd = cal.timeInMillis
-            val yesterdaySpent = txs.filter { it.type == TransactionType.EXPENSE && it.dateTimestamp >= yesterdayStart && it.dateTimestamp < yesterdayEnd }.sumOf { it.amount }
+            val yesterday = yesterdayRange(now)
+            val yesterdaySpent = txs.filter { it.type == TransactionType.EXPENSE && it.dateTimestamp in yesterday }.sumOf { it.amount }
             val day = 24L * 60 * 60 * 1000
             // Bills AND debts landing inside each item's own lead window
             // (falls back to 3 days) — overdue ones always included.
@@ -899,22 +895,20 @@ class NightReportWorker(appContext: Context, params: WorkerParameters) : Corouti
             val txs = db.transactionDao().getAllTransactions().first()
             val now = System.currentTimeMillis()
             val day = 24L * 60 * 60 * 1000
-            val dayStart = Calendar.getInstance().apply {
-                timeInMillis = now
-                set(Calendar.HOUR_OF_DAY, 0)
-                set(Calendar.MINUTE, 0)
-                set(Calendar.SECOND, 0)
-                set(Calendar.MILLISECOND, 0)
-            }.timeInMillis
-            val weekStart = dayStart - 6 * day
+            val today = todayRange(now)
+            val yesterday = yesterdayRange(now)
+            // Rolling last-7-days, labelled as such in the body — never "week",
+            // which now means the Monday-start calendar week everywhere.
+            val last7 = rollingDays(now, 7)
+            val dayStart = today.startInclusive
 
             fun isExpense(t: com.pesaflow.app.data.models.Transaction) = t.type == TransactionType.EXPENSE && !t.isSample
 
-            val todaySpent = txs.filter { isExpense(it) && it.dateTimestamp >= dayStart }.sumOf { it.amount }
-            val todayCount = txs.filter { isExpense(it) && it.dateTimestamp >= dayStart }.size
-            val yesterdaySpent = txs.filter { isExpense(it) && it.dateTimestamp >= dayStart - day && it.dateTimestamp < dayStart }.sumOf { it.amount }
-            val weekSpent = txs.filter { isExpense(it) && it.dateTimestamp >= weekStart }.sumOf { it.amount }
-            val weekCount = txs.filter { isExpense(it) && it.dateTimestamp >= weekStart }.size
+            val todaySpent = txs.filter { isExpense(it) && it.dateTimestamp in today }.sumOf { it.amount }
+            val todayCount = txs.filter { isExpense(it) && it.dateTimestamp in today }.size
+            val yesterdaySpent = txs.filter { isExpense(it) && it.dateTimestamp in yesterday }.sumOf { it.amount }
+            val weekSpent = txs.filter { isExpense(it) && it.dateTimestamp in last7 && inPastOrNow(it.dateTimestamp, now) }.sumOf { it.amount }
+            val weekCount = txs.filter { isExpense(it) && it.dateTimestamp in last7 && inPastOrNow(it.dateTimestamp, now) }.size
             val monthStart = Calendar.getInstance().apply {
                 timeInMillis = now
                 set(Calendar.DAY_OF_MONTH, 1)
@@ -926,16 +920,16 @@ class NightReportWorker(appContext: Context, params: WorkerParameters) : Corouti
             val monthSpent = txs.filter { isExpense(it) && it.dateTimestamp >= monthStart }.sumOf { it.amount }
             val balance = txs.sumOf { when (it.type) { TransactionType.INCOME -> it.amount; TransactionType.EXPENSE -> -it.amount; TransactionType.SAVING -> -it.amount; TransactionType.INVESTMENT -> -it.amount; TransactionType.TRANSFER -> 0.0 } }
 
-            val topCatToday = txs.filter { isExpense(it) && it.dateTimestamp >= dayStart }
+            val topCatToday = txs.filter { isExpense(it) && it.dateTimestamp in today }
                 .groupBy { it.category }.mapValues { e -> e.value.sumOf { it.amount } }
                 .maxByOrNull { it.value }
-            val biggestSingle = txs.filter { isExpense(it) && it.dateTimestamp >= dayStart }
+            val biggestSingle = txs.filter { isExpense(it) && it.dateTimestamp in today }
                 .maxByOrNull { it.amount }
 
-            val mpesaToday = txs.filter { isExpense(it) && it.dateTimestamp >= dayStart && it.source == com.pesaflow.app.data.models.TransactionSource.MPESA_SMS }.sumOf { it.amount }
+            val mpesaToday = txs.filter { isExpense(it) && it.dateTimestamp in today && it.source == com.pesaflow.app.data.models.TransactionSource.MPESA_SMS }.sumOf { it.amount }
             val manualToday = todaySpent - mpesaToday
             // M-Pesa summarizer: today's parsed texts, counted and grouped
-            val mpesaTodayTxns = txs.filter { isExpense(it) && it.dateTimestamp >= dayStart && it.source == com.pesaflow.app.data.models.TransactionSource.MPESA_SMS }
+            val mpesaTodayTxns = txs.filter { isExpense(it) && it.dateTimestamp in today && it.source == com.pesaflow.app.data.models.TransactionSource.MPESA_SMS }
             val mpesaSummary = mpesaTodayTxns.groupBy { it.category }
                 .mapValues { e -> e.value.sumOf { it.amount } }
                 .entries.sortedByDescending { it.value }.take(3)
@@ -950,9 +944,9 @@ class NightReportWorker(appContext: Context, params: WorkerParameters) : Corouti
             }
             val plannedLunch = plannedSlot("Lunch")
             val plannedSupper = plannedSlot("Supper")
-            val ateFoodToday = txs.any { it.type == TransactionType.EXPENSE && it.category == "Food" && it.dateTimestamp >= dayStart }
+            val ateFoodToday = txs.any { it.type == TransactionType.EXPENSE && it.category == "Food" && it.dateTimestamp in today }
             val greensToday = txs.any {
-                it.type == TransactionType.EXPENSE && it.dateTimestamp >= dayStart &&
+                it.type == TransactionType.EXPENSE && it.dateTimestamp in today &&
                     (it.merchant + " " + it.category).contains(Regex("sukuma|mboga|mchicha|spinach|veg|cabbage", RegexOption.IGNORE_CASE))
             }
             val dietLine = if (ateFoodToday && !greensToday) {
@@ -1000,7 +994,7 @@ class NightReportWorker(appContext: Context, params: WorkerParameters) : Corouti
                     val change = ((todaySpent - yesterdaySpent) / yesterdaySpent * 100).toInt()
                     append(if (change > 0) " (up $change% vs yesterday)" else " (down ${-change}%)")
                 }
-                append(". Week: KSh ${weekSpent.toInt()} ($weekCount items).")
+                append(". Last 7 days: KSh ${weekSpent.toInt()} ($weekCount items).")
                 topCatToday?.let { top ->
                     append(" Top today: ${top.key} KSh ${top.value.toInt()}")
                     val mOfTop = mpesaSummary.firstOrNull { e -> e.key == top.key }?.value?.toInt() ?: 0
@@ -1020,7 +1014,7 @@ class NightReportWorker(appContext: Context, params: WorkerParameters) : Corouti
                 // All-manual day (cash life): name the top hand-logged category instead of silence.
                 if (mpesaToday <= 0 && manualToday > 0) {
                     val topManual = txs.filter {
-                        isExpense(it) && it.dateTimestamp >= dayStart &&
+                        isExpense(it) && it.dateTimestamp in today &&
                             it.source != com.pesaflow.app.data.models.TransactionSource.MPESA_SMS
                     }.groupBy { it.category }.mapValues { e -> e.value.sumOf { it.amount } }
                         .maxByOrNull { it.value }

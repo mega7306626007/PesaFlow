@@ -50,7 +50,11 @@ class WeekdayPaceTest {
         // Hot Saturdays drag the mean up; every normal day sits at the floor.
         assertEquals(0.6, p.factorFor(mon + 1 * dayMs), 0.001)
         assertEquals(0.6, p.factorFor(mon), 0.001)
-        assertTrue(p.activeDays == 28)
+        // Calendar-day window covers the 28 days ending today: the Sep-7 row
+        // predates the frame, so 27 distinct days are active. The old
+        // (now - ts) / 24h bucket counted it against a frame that never
+        // contained Sep 7 — sums and occurrences disagreed.
+        assertTrue(p.activeDays == 27)
     }
 
     @Test
