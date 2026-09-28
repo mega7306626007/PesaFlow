@@ -1,7 +1,7 @@
 package com.pesaflow.app.ui
 
 /** Single source of truth for in-app routes. String switches elsewhere must
- *  reference these — a typo in a raw literal used to fail silently by
+ *  reference these ï¿½ a typo in a raw literal used to fail silently by
  *  dropping the user back on the More screen. */
 object NavRoutes {
     const val SEARCH = "search"
@@ -28,5 +28,6 @@ object NavRoutes {
     const val EXPORT = "export"
     const val RECURRING = "recurring"
     const val GOALS = "goals"
+    const val CONTACTS = "contacts"
 }
 

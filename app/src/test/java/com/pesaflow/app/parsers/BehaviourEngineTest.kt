@@ -36,10 +36,34 @@ class BehaviourEngineTest {
         paymentMethod = PaymentMethod.MPESA, source = TransactionSource.MANUAL
     )
 
+    private fun fareTs(ts: Long, amount: Double = 60.0) = Transaction(
+        amount = amount, type = TransactionType.EXPENSE, category = "Transport",
+        dateTimestamp = ts, merchant = "Matatu", description = "",
+        paymentMethod = PaymentMethod.MPESA, source = TransactionSource.MANUAL
+    )
+
+    // Monday of the week containing (today - 7*weeksAgo), 8am. Anchoring at
+    // Monday keeps the whole Mon–Thu run inside one week regardless of which
+    // day the test runs — walking back per-weekday from a weekday offset
+    // splits Tue/Wed/Thu across two weeks when today IS Monday.
+    private fun mondayWeeksAgo(weeksAgo: Int): Long {
+        val c = Calendar.getInstance()
+        c.add(Calendar.DAY_OF_MONTH, -7 * weeksAgo)
+        while (c.get(Calendar.DAY_OF_WEEK) != Calendar.MONDAY) c.add(Calendar.DAY_OF_MONTH, -1)
+        c.set(Calendar.HOUR_OF_DAY, 8)
+        c.set(Calendar.MINUTE, 0)
+        c.set(Calendar.SECOND, 0)
+        c.set(Calendar.MILLISECOND, 0)
+        return c.timeInMillis
+    }
+
     private fun fourDayCommute(): List<Transaction> {
         val rows = mutableListOf<Transaction>()
-        listOf(Calendar.MONDAY, Calendar.TUESDAY, Calendar.WEDNESDAY, Calendar.THURSDAY).forEach { dow ->
-            (1..3).forEach { w -> rows.add(fare(w * 7, dow)) }
+        (1..3).forEach { w ->
+            val monday = mondayWeeksAgo(w)
+            (0..3).forEach { day ->
+                rows.add(fareTs(monday + day * 24L * 60 * 60 * 1000))
+            }
         }
         return rows
     }

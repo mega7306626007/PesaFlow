@@ -51,6 +51,34 @@ class DeductionsTest {
     }
 
     @Test
+    fun `hiked peak fares ride the same rhythm`() {
+        // 70s with 100s mixed in: one school run, ±50 tolerance holds.
+        val days = listOf(1, 2, 3, 4, 7, 8, 9, 10)
+        val rows = days.mapIndexed { i, d ->
+            row(if (i % 3 == 2) 100.0 else 70.0, "Transport", ms(2026, 9, d, 8, 12), "Stage 46")
+        }
+        val f = deduceFare(rows, isClassDay = { true })!!
+        assertTrue(f.amount in 70.0..100.0)
+        assertTrue(f.evidence.contains("70-100"))
+        assertTrue(f.confidence >= DEDUCTION_BAR)
+    }
+
+    @Test
+    fun `late morning classes still count`() {
+        val rows = (1..5).map { row(60.0, "Transport", ms(2026, 9, it, 11, 45), "Stage 46") }
+        val f = deduceFare(rows, isClassDay = { true })
+        assertNotNull(f)
+    }
+
+    @Test
+    fun `two different lives stay silent`() {
+        // 50s and 200s equally: no dominant run, spread kills confidence.
+        val rows = (1..5).map { row(50.0, "Transport", ms(2026, 9, it, 8, 0)) } +
+            (11..15).map { row(200.0, "Transport", ms(2026, 9, it, 8, 0)) }
+        assertNull(deduceFare(rows, isClassDay = { true }))
+    }
+
+    @Test
     fun `rent anchor needs two months same date`() {
         val rows = listOf(
             row(15000.0, "Rent", ms(2026, 9, 3), "John Apartments"),

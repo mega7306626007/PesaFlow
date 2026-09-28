@@ -106,6 +106,9 @@ import com.pesaflow.app.ui.notifications.NotificationChecker
 import com.pesaflow.app.ui.exports.ExportScreen
 import com.pesaflow.app.ui.recurring.RecurringScreen
 import com.pesaflow.app.ui.goals.GoalsScreen
+import com.pesaflow.app.ui.contacts.ContactBookScreen
+import com.pesaflow.app.data.ledger.ContactBook
+import com.pesaflow.app.data.ledger.ContactEntry
 
 
 class MainActivity : ComponentActivity() {
@@ -398,6 +401,19 @@ private fun PesaFlowAppNav(viewModel: FinanceViewModel) {
                     )
                     NavRoutes.RECURRING -> RecurringScreen(transactions = transactions)
                     NavRoutes.GOALS -> GoalsScreen(goals = goals, transactions = transactions)
+                    NavRoutes.CONTACTS -> {
+                        val prefs = context.getSharedPreferences("pesaflow_prefs", android.content.Context.MODE_PRIVATE)
+                        val contacts = ContactBook.readAll(prefs)
+                        ContactBookScreen(
+                            contacts = contacts,
+                            onSave = { name, display, rel, cat, scope, notes ->
+                                ContactBook.save(prefs, name, display, rel, cat, scope, notes)
+                            },
+                            onDelete = { name ->
+                                ContactBook.delete(prefs, name)
+                            }
+                        )
+                    }
                     else -> MoreScreen(onSelect = { moreSection = it })
                 }
             }
@@ -475,6 +491,7 @@ private fun MoreScreen(onSelect: (String) -> Unit) {
         MoreRow(icon = Icons.Filled.Star, title = "Export & Backup", subtitle = "CSV, JSON backup and share") { onSelect(NavRoutes.EXPORT) }
         MoreRow(icon = Icons.Filled.DateRange, title = "Recurring", subtitle = "Patterns and monthly commitment") { onSelect(NavRoutes.RECURRING) }
         MoreRow(icon = Icons.Filled.Savings, title = "Goals Pro", subtitle = "Pace, risk and suggestions") { onSelect(NavRoutes.GOALS) }
+        MoreRow(icon = Icons.Filled.Person, title = "Contact Book", subtitle = "Label people — friend, landlord, boss") { onSelect(NavRoutes.CONTACTS) }
     }
     }
 }

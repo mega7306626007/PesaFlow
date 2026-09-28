@@ -49,9 +49,11 @@ private fun monthId(ts: Long): String {
 }
 
 /**
- * Fare rhythm: same small Transport amount, weekday mornings, absent Sundays.
- * Cross-checked against class days — charges that vanish on free days are
- * nearly certain; seven-day-a-week patterns stay silent.
+ * Fare rhythm: same-ish morning Transport spend on class days. Flexible by
+ * design: the dominant band anchors, ±50 absorbs hiked peak fares and nearby
+ * routes (different destinations, one school run); two truly different lives
+ * spread wide and pay for it in confidence instead of splitting silently.
+ * Wide 5–12 window: first classes shift by hours across days and terms.
  */
 fun deduceFare(
     rows: List<LedgerRow>,
@@ -63,32 +65,48 @@ fun deduceFare(
         it.type == TransactionType.EXPENSE &&
             it.category.equals("Transport", ignoreCase = true) &&
             it.amount in 10.0..500.0 &&
-            hourOf(it.ts) in 5..11
+            hourOf(it.ts) in 5..12
     }
     if (mornings.size < 4) return null
-    // Amount bands: nearest 10 bob (50 vs 55 stay together, 50 vs 80 don't).
+    // Dominant nearest-10 band anchors; ±50 tolerance absorbs the rest.
     val best = mornings.groupBy { (it.amount / 10).toInt() }.maxByOrNull { it.value.size }
         ?: return null
-    val group = best.value
+    val anchor = medianD(best.value.map { it.amount })
+    val group = mornings.filter { kotlin.math.abs(it.amount - anchor) <= 50.0 }
     if (group.size < 4) return null
+    // Rival-life guard: a comparable second cluster means two different
+    // lives — silence beats a blended fiction.
+    if ((mornings.size - group.size) * 2 >= group.size) return null
     val amount = group.map { it.amount }.average()
-    // Variance penalty: a 40–60 wobble is one fare; 30–90 is two lives.
-    val spread = (group.maxOf { it.amount } - group.minOf { it.amount }) / amount
+    // Variance penalty, measured against the ±50 tolerance window: a 40–60
+    // wobble barely registers; a window-spanning sprawl pays full price.
+    val spread = ((group.maxOf { it.amount } - group.minOf { it.amount }) / 100.0).coerceAtMost(1.0)
     val distinctDays = group.map { monthId(it.ts) to dayOfMonth(it.ts) }.toSet().size
     val classMornings = group.count { isClassDay(it.ts) }
     val sundayShare = group.count { dayOfWeek(it.ts) == Calendar.SUNDAY }.toDouble() / group.size
     if (classMornings < 3) return null
     val confidence = (0.45 + 0.07 * minOf(classMornings, 5) - 0.15 * sundayShare - 0.3 * spread)
         .coerceIn(0.0, 0.95).toFloat()
+    val range = group.minOf { it.amount }.toInt().let { lo ->
+        group.maxOf { it.amount }.toInt().let { hi ->
+            if (lo == hi) "" else " · KSh $lo-$hi typical"
+        }
+    }
     return Deduction(
         kind = HypothesisKind.FARE,
         title = "Morning fare · KSh ${amount.toInt()}",
-        evidence = "$classMornings of $distinctDays mornings on class days",
+        evidence = "$classMornings of $distinctDays mornings on class days$range",
         confidence = confidence,
         amount = amount,
         category = "Transport",
         merchant = group.groupBy { it.merchant }.maxByOrNull { it.value.size }?.key ?: "Matatu"
     )
+}
+
+private fun medianD(values: List<Double>): Double {
+    if (values.isEmpty()) return 0.0
+    val s = values.sorted()
+    return if (s.size % 2 == 1) s[s.size / 2] else (s[s.size / 2 - 1] + s[s.size / 2]) / 2
 }
 
 /**
