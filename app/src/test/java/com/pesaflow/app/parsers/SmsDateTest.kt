@@ -32,16 +32,28 @@ class SmsDateTest {
     @Test
     fun `bank dd-Mon-yy with time harvests the stamp`() {
         val sms = "KCB Alert: Your account 123456 has been debited with KSh2,000.00 on 12-Sep-26 at 10:30 AM. Available balance KSh5,000.00."
-        val tx = MpesaParser.parseMessage(sms, "KCB")
+        // Scan conditions: the inbox stamp corroborates the body within minutes.
+        val tx = MpesaParser.parseMessage(sms, "KCB", at(2026, Calendar.SEPTEMBER, 12, 10, 35))
         assertNotNull(tx)
         assertEquals(TransactionType.EXPENSE, tx!!.type)
         assertStamp(tx.dateTimestamp, 2026, Calendar.SEPTEMBER, 12, 10, 30)
     }
 
     @Test
+    fun `harvested stamp disagreeing with carrier loses to carrier`() {
+        // A harvested date 11 days off the inbox stamp is a due-date ghost or
+        // wrong-year read, never the transaction — the carrier rules.
+        val sms = "KCB Alert: Your account 123456 has been debited with KSh2,000.00 on 12-Sep-26 at 10:30 AM. Available balance KSh5,000.00."
+        val carrier = at(2026, Calendar.SEPTEMBER, 1, 8, 0)
+        val tx = MpesaParser.parseMessage(sms, "KCB", carrier)
+        assertNotNull(tx)
+        assertEquals(carrier, tx!!.dateTimestamp)
+    }
+
+    @Test
     fun `bank date without clock lands at noon never midnight`() {
         val sms = "Dear member, your account 123456 has been credited with KES 8,500.00 on 12/9/26. Available balance KES 9,000."
-        val tx = MpesaParser.parseMessage(sms, "EQUITY")
+        val tx = MpesaParser.parseMessage(sms, "EQUITY", at(2026, Calendar.SEPTEMBER, 12, 15, 0))
         assertNotNull(tx)
         assertStamp(tx!!.dateTimestamp, 2026, Calendar.SEPTEMBER, 12, 12, 0)
     }
@@ -49,7 +61,7 @@ class SmsDateTest {
     @Test
     fun `swahili tarehe and saa harvest`() {
         val sms = "Umetuma KSh200.00 kwa MAMA MBOGA tarehe 12/09/26 saa 09:15."
-        val tx = MpesaParser.parseMessage(sms, "MPESA")
+        val tx = MpesaParser.parseMessage(sms, "MPESA", at(2026, Calendar.SEPTEMBER, 12, 9, 20))
         assertNotNull(tx)
         assertEquals(TransactionType.EXPENSE, tx!!.type)
         assertStamp(tx.dateTimestamp, 2026, Calendar.SEPTEMBER, 12, 9, 15)
@@ -66,7 +78,7 @@ class SmsDateTest {
     @Test
     fun `iso date harvests from bank bodies`() {
         val sms = "Your account 123456 debited KSh300.00 on 2026-09-12 at 10:30:00. Ref 98765."
-        val tx = MpesaParser.parseMessage(sms, "KCB")
+        val tx = MpesaParser.parseMessage(sms, "KCB", at(2026, Calendar.SEPTEMBER, 12, 10, 31))
         assertNotNull(tx)
         assertStamp(tx!!.dateTimestamp, 2026, Calendar.SEPTEMBER, 12, 10, 30)
     }
@@ -81,6 +93,9 @@ class SmsDateTest {
 
     @Test
     fun `real text date beats a stale carrier stamp`() {
+        // Branch-captured `on…at…` stamps keep full trust even against a
+        // disagreeing carrier: restored-SMS backups rewrite inbox dates to
+        // restore-time while body dates stay true.
         val sms = "QWERTY1234 Confirmed. You have sent KSh1,000.00 to John Doe on 12/09/26 at 10:30 AM"
         val tx = MpesaParser.parseMessage(sms, "MPESA", at(2026, Calendar.SEPTEMBER, 1))
         assertNotNull(tx)
@@ -118,7 +133,7 @@ class SmsDateTest {
     @Test
     fun `telco on-date harvests without clock`() {
         val sms = "Dear customer, you have successfully sent Ksh 500.00 to 0712345678 on 12/9/26. Transaction ID: ABC123XYZ."
-        val tx = MpesaParser.parseMessage(sms)
+        val tx = MpesaParser.parseMessage(sms, "", at(2026, Calendar.SEPTEMBER, 12, 18, 0))
         assertNotNull(tx)
         assertStamp(tx!!.dateTimestamp, 2026, Calendar.SEPTEMBER, 12, 12, 0)
     }

@@ -214,18 +214,20 @@ object MpesaParser {
 
     // Entry point: text dates win when sane; otherwise the carrier stamp
     // (inbox date on scans, SMSC time on live receive) beats a now-default.
-    // Callers that have no carrier stamp get today's behaviour unchanged.
-    fun parseMessage(smsBody: String, sender: String = "", fallbackTs: Long = System.currentTimeMillis()): PendingTransaction? {
-        val parsed = parseTransaction(smsBody, sender) ?: return null
+    // No carrier stamp (manual paste, tests) means today's behaviour unchanged.
+    fun parseMessage(smsBody: String, sender: String = "", fallbackTs: Long = Long.MIN_VALUE): PendingTransaction? {
+        val carrierTs = fallbackTs.takeIf { it > 0 }
+        val parsed = parseTransaction(smsBody, sender, carrierTs) ?: return null
         val now = System.currentTimeMillis()
         val freshDefault = kotlin.math.abs(parsed.dateTimestamp - now) < 120_000
-        val staleCarrier = fallbackTs > 0 && kotlin.math.abs(fallbackTs - now) > 120_000
         // Only rewinds fresh-defaulted rows (dateless or garbage dates) —
         // real text dates are days old and never satisfy freshDefault.
-        return if (freshDefault && staleCarrier) parsed.copy(dateTimestamp = fallbackTs) else parsed
+        return if (freshDefault && carrierTs != null && kotlin.math.abs(carrierTs - now) > 120_000) {
+            parsed.copy(dateTimestamp = carrierTs)
+        } else parsed
     }
 
-    private fun parseTransaction(smsBody: String, sender: String): PendingTransaction? {
+    private fun parseTransaction(smsBody: String, sender: String, carrierTs: Long?): PendingTransaction? {
         // Spellings converge before matching: "KES"/"Kshs" become "KSh" so
         // every pattern below only needs one currency literal. Word-boundary
         // guarded — merchant names like "KESHAM" are untouched.
@@ -233,6 +235,29 @@ object MpesaParser {
             .replace(Regex("(?i)\\bkes\\b"), "KSh")
             .replace(Regex("(?i)\\bkshs\\b"), "KSh")
         val senderBank = bankNameOfSender(sender)
+
+        // Shadows the member below: every branch below calls THIS, gaining
+        // harvested-date arbitration for free. Branch-captured `on…at…`
+        // stamps keep full trust (restored-SMS backups rewrite inbox dates
+        // but body dates stay true); harvested stamps are low-confidence, so
+        // a carrier stamp that disagrees by 48h+ overrules them (due-dates
+        // and wrong-year ghosts live in these bodies).
+        fun buildPending(
+            code: String?, amountStr: String?, party: String?,
+            dateStr: String?, timeStr: String?, type: TransactionType, raw: String,
+            confidence: Float = 0.95f,
+            method: PaymentMethod = PaymentMethod.MPESA
+        ): PendingTransaction? {
+            val usedHarvest = dateStr == null || timeStr == null
+            val p = buildPendingRow(code, amountStr, party, dateStr, timeStr, type, raw, confidence, method) ?: return null
+            if (usedHarvest && carrierTs != null && carrierTs > 0 &&
+                kotlin.math.abs(p.dateTimestamp - System.currentTimeMillis()) > 120_000 &&
+                kotlin.math.abs(p.dateTimestamp - carrierTs) > HARVEST_AGREE_WINDOW_MS
+            ) {
+                return p.copy(dateTimestamp = carrierTs)
+            }
+            return p
+        }
 
         // Failed/cancelled/insufficient texts move no money — never parse.
         val low0 = sanitized.lowercase()
@@ -1316,7 +1341,9 @@ object MpesaParser {
         return date to time
     }
 
-    private fun buildPending(
+    private const val HARVEST_AGREE_WINDOW_MS = 48L * 60 * 60 * 1000
+
+    private fun buildPendingRow(
         code: String?, amountStr: String?, party: String?,
         dateStr: String?, timeStr: String?, type: TransactionType, raw: String,
         confidence: Float = 0.95f,
