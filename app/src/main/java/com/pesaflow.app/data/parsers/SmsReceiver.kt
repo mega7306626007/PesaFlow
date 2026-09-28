@@ -33,7 +33,9 @@ class SmsReceiver : BroadcastReceiver() {
                 // MPESA = money moves; Safaricom = bundles/airtime notices without a code;
                 // banks + telcos ride on sender names (bodies often omit them).
                 if (MpesaParser.isTransactionalSender(sender) || body.contains("Confirmed")) {
-                    val pendingTx = MpesaParser.parseMessage(body, sender)
+                    // SMSC timestamp rides along: a delayed delivery still
+                    // files under the carrier's stamp, never the arrival time.
+                    val pendingTx = MpesaParser.parseMessage(body, sender, msg.timestampMillis)
                     if (pendingTx != null) {
                         scope.launch {
                             handleDetectedTransaction(context, pendingTx)

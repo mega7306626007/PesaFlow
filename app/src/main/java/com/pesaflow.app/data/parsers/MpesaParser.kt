@@ -212,7 +212,20 @@ object MpesaParser {
             low.contains("debited") || low.contains("credited") || low.contains("deposited"))
     }
 
-    fun parseMessage(smsBody: String, sender: String = ""): PendingTransaction? {
+    // Entry point: text dates win when sane; otherwise the carrier stamp
+    // (inbox date on scans, SMSC time on live receive) beats a now-default.
+    // Callers that have no carrier stamp get today's behaviour unchanged.
+    fun parseMessage(smsBody: String, sender: String = "", fallbackTs: Long = System.currentTimeMillis()): PendingTransaction? {
+        val parsed = parseTransaction(smsBody, sender) ?: return null
+        val now = System.currentTimeMillis()
+        val freshDefault = kotlin.math.abs(parsed.dateTimestamp - now) < 120_000
+        val staleCarrier = fallbackTs > 0 && kotlin.math.abs(fallbackTs - now) > 120_000
+        // Only rewinds fresh-defaulted rows (dateless or garbage dates) —
+        // real text dates are days old and never satisfy freshDefault.
+        return if (freshDefault && staleCarrier) parsed.copy(dateTimestamp = fallbackTs) else parsed
+    }
+
+    private fun parseTransaction(smsBody: String, sender: String): PendingTransaction? {
         // Spellings converge before matching: "KES"/"Kshs" become "KSh" so
         // every pattern below only needs one currency literal. Word-boundary
         // guarded — merchant names like "KESHAM" are untouched.
@@ -1261,6 +1274,48 @@ object MpesaParser {
     }
 
 
+    // Fallback date harvest: branches that don't capture dates (banks,
+    // loans, bundles, Swahili, telco) often still carry one. Anchored
+    // positions ("on", "tarehe", "Date:") are the transaction's own stamp
+    // and win; bare formats are a last resort — due-dates live in bodies too,
+    // and parseDateTime's sanity gate is the final backstop.
+    private val harvestDatePatterns = listOf(
+        "(?i)\\bon\\s+(\\d{4}-\\d{1,2}-\\d{1,2})",
+        "(?i)\\bon\\s+(?!\\d{4}-)(\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4})(?![/-]?\\d)",
+        "(?i)tarehe\\s+(?!\\d{4}-)(\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4})(?![/-]?\\d)",
+        "(?i)\\bdate\\s*:?\\s*(?!\\d{4}-)(\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4})(?![/-]?\\d)",
+        "(?i)\\bon\\s+(\\d{1,2}(?:st|nd|rd|th)?\\s+[A-Za-z]{3,9}\\s+\\d{2,4})",
+        "(?i)(?<!\\d)(\\d{1,2}(?:st|nd|rd|th)?\\s+[A-Za-z]{3,9}\\s+\\d{2,4})(?!\\d)",
+        "(?i)(?<!\\d)(\\d{1,2}-[A-Za-z]{3,9}-\\d{2,4})(?!\\d)",
+        "(?i)(?<!\\d)(\\d{4}-\\d{1,2}-\\d{1,2})(?!\\d)",
+        "(?i)(?<!\\d)(\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4})(?![/-]?\\d)"
+    )
+    private val harvestTimePatterns = listOf(
+        "(?i)(?:\\bat|saa)\\s+(\\d{1,2}:\\d{2}(?::\\d{2})?\\s*(?:AM|PM)?)",
+        "(?i)\\b(\\d{1,2}:\\d{2}(?::\\d{2})?\\s*(?:AM|PM|hrs|HRS))",
+        "(?i)(?<!\\d)(\\d{1,2}:\\d{2})(?!\\d)"
+    )
+
+    private fun harvestDateTime(body: String): Pair<String?, String?> {
+        var date: String? = null
+        for (p in harvestDatePatterns) {
+            val m = Pattern.compile(p).matcher(body)
+            if (m.find()) {
+                date = m.group(1)
+                break
+            }
+        }
+        var time: String? = null
+        for (p in harvestTimePatterns) {
+            val m = Pattern.compile(p).matcher(body)
+            if (m.find()) {
+                time = m.group(1)
+                break
+            }
+        }
+        return date to time
+    }
+
     private fun buildPending(
         code: String?, amountStr: String?, party: String?,
         dateStr: String?, timeStr: String?, type: TransactionType, raw: String,
@@ -1291,7 +1346,13 @@ object MpesaParser {
                 .split("  ")[0]
                 .trim()
                 .ifEmpty { "Unknown Party" }
-            val timestamp = parseDateTime(dateStr, timeStr)
+            val timestamp = run {
+                // Branches that don't capture dates (banks, loans, bundles,
+                // Swahili, telco) often still carry one — harvest the body's
+                // own stamp before defaulting to now.
+                val harvested = if (dateStr == null || timeStr == null) harvestDateTime(raw) else null to null
+                parseDateTime(dateStr ?: harvested.first, timeStr ?: harvested.second)
+            }
 
             PendingTransaction(
                 amount = rawAmount,
@@ -1316,20 +1377,46 @@ object MpesaParser {
 
 
     private fun parseDateTime(dateStr: String?, timeStr: String?): Long {
-        if (dateStr == null || timeStr == null) return System.currentTimeMillis()
         val now = System.currentTimeMillis()
+        if (dateStr == null) return now
         return try {
-            val cleanTime = timeStr.trim().replace("PM", " PM").replace("AM", " AM").replace("\\s+".toRegex(), " ")
+            // Normalize KE-traffic variants before strict parsing: day-first
+            // dash dates, ordinal suffixes ("12th Sep"), "Sept" spelling.
+            var date = dateStr.trim()
+                .replace(Regex("(?i)(\\d)(st|nd|rd|th)\\b"), "$1")
+                .replace(Regex("(?i)\\bsept\\b"), "Sep")
+            if (date.matches(Regex("\\d{1,2}-\\d{1,2}-\\d{4}"))) date = date.replace('-', '/')
+            // Dateless-time bodies (bank "on 12/9/26" with no clock) land at
+            // noon — never midnight, which would misfile them a day early.
+            val cleanTime = (timeStr ?: "12:00").trim()
+                .replace(Regex("(?i)\\s*(hrs|eat)\\.?"), "")
+                .replace("PM", " PM").replace("AM", " AM")
+                .replace("\\s+".toRegex(), " ").trim()
             // 4-digit years first (a "12/09/2026" forced through dd/MM/yy lands
             // in 2020 — the "confirm yesterday" ghost). Strict, newest wins.
-            val tries = listOf("dd/MM/yyyy h:mm a", "dd/MM/yyyy H:mm", "dd/MM/yy h:mm a", "dd/MM/yy H:mm")
+            val tries = listOf(
+                "dd/MM/yyyy H:mm", "dd/MM/yyyy h:mm a",
+                "dd/MM/yy H:mm", "dd/MM/yy h:mm a",
+                "dd-MMM-yyyy H:mm", "dd-MMM-yyyy h:mm a",
+                "dd-MMM-yy H:mm", "dd-MMM-yy h:mm a",
+                "dd MMM yyyy H:mm", "dd MMM yyyy h:mm a",
+                "dd MMM yy H:mm", "dd MMM yy h:mm a",
+                "dd MMMM yyyy H:mm", "dd MMMM yyyy h:mm a",
+                "yyyy-MM-dd H:mm", "yyyy-MM-dd h:mm a",
+                "dd/MM/yyyy", "dd/MM/yy",
+                "dd-MMM-yyyy", "dd-MMM-yy", "dd MMMM yyyy", "yyyy-MM-dd"
+            )
             for (pattern in tries) {
                 try {
                     val format = SimpleDateFormat(pattern, Locale.US)
                     format.isLenient = false
-                    val t = format.parse("$dateStr $cleanTime")?.time ?: continue
-                    // Sanity: SMS dates are days old at most, never years off.
-                    if (kotlin.math.abs(t - now) < 370L * 24 * 60 * 60 * 1000) return t
+                    val dated = pattern.contains('H') || pattern.contains('h')
+                    val t = format.parse(if (dated) "$date $cleanTime" else date)?.time ?: continue
+                    // Sanity: text dates are the past, never the far future
+                    // (due-date ghosts) nor years off.
+                    if (t > now + 24L * 60 * 60 * 1000) continue
+                    if (now - t > 370L * 24 * 60 * 60 * 1000) continue
+                    return t
                 } catch (e: Exception) {
                     // Try the next pattern.
                 }
