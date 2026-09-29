@@ -408,9 +408,17 @@ fun DashboardScreen(
                                 onAction = { onNavigate(NavRoutes.BUDGETS) }
                             )
                             budgets.filter { it.limitAmount > 0 && it.category != "ALL" }.take(5).forEach { b ->
+                                // Current-period progress per budget type — a stale
+                                // stored window must never sum whole histories.
+                                val nowMs = System.currentTimeMillis()
+                                val win = com.pesaflow.app.data.finance.budgetWindowRange(
+                                    b.type, nowMs,
+                                    profile?.semesterStartTimestamp ?: 0L,
+                                    profile?.semesterEndTimestamp ?: 0L
+                                )
                                 val spent = transactions.filter {
                                     it.type == TransactionType.EXPENSE && !it.isSample &&
-                                        it.dateTimestamp in b.startTimestamp..b.endTimestamp &&
+                                        it.dateTimestamp in win && it.dateTimestamp <= nowMs &&
                                         it.category.equals(b.category, ignoreCase = true)
                                 }.sumOf { it.amount }
                                 val remaining = (b.limitAmount - spent).coerceAtLeast(0.0)
@@ -603,12 +611,16 @@ fun DashboardScreen(
             }
 
 
-            // Warning banners (80%/100% monthly budget thresholds)
+            // Warning banners (80%/100% monthly budget thresholds). Progress is
+            // measured against the CURRENT month, never the budget's stored
+            // window (those go stale and sum whole histories).
             budgets.filter { it.type == BudgetType.MONTHLY && it.limitAmount > 0 }.mapNotNull { b ->
+                val nowMs = System.currentTimeMillis()
+                val win = com.pesaflow.app.data.time.monthRange(nowMs)
                 val spent = transactions
                     .filter {
                         it.type == TransactionType.EXPENSE && !it.isSample &&
-                            it.dateTimestamp in b.startTimestamp..b.endTimestamp
+                            it.dateTimestamp in win && it.dateTimestamp <= nowMs
                     }
                     .sumOf { it.amount }
                 val pct = (spent / b.limitAmount * 100).toInt()

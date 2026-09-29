@@ -57,6 +57,33 @@ fun todayRange(now: Long): TimeRange {
     return TimeRange(start, addDays(start, 1))
 }
 
+/** Current calendar month: the 1st 00:00 to the 1st of next month. */
+fun monthRange(now: Long): TimeRange {
+    val c = Calendar.getInstance().apply { timeInMillis = now }
+    c.set(Calendar.DAY_OF_MONTH, 1)
+    c.set(Calendar.HOUR_OF_DAY, 0)
+    c.set(Calendar.MINUTE, 0)
+    c.set(Calendar.SECOND, 0)
+    c.set(Calendar.MILLISECOND, 0)
+    val start = c.timeInMillis
+    c.add(Calendar.MONTH, 1)
+    return TimeRange(start, c.timeInMillis)
+}
+
+/** Current calendar year: Jan 1 00:00 to next Jan 1. */
+fun yearRange(now: Long): TimeRange {
+    val c = Calendar.getInstance().apply { timeInMillis = now }
+    c.set(Calendar.MONTH, Calendar.JANUARY)
+    c.set(Calendar.DAY_OF_MONTH, 1)
+    c.set(Calendar.HOUR_OF_DAY, 0)
+    c.set(Calendar.MINUTE, 0)
+    c.set(Calendar.SECOND, 0)
+    c.set(Calendar.MILLISECOND, 0)
+    val start = c.timeInMillis
+    c.add(Calendar.YEAR, 1)
+    return TimeRange(start, c.timeInMillis)
+}
+
 /** Yesterday as a strict range. */
 fun yesterdayRange(now: Long): TimeRange {
     val today = todayRange(now)

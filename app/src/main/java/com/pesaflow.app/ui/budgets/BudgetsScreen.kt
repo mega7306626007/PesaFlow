@@ -428,11 +428,15 @@ fun BudgetsScreen(viewModel: FinanceViewModel) {
             if (categoryBudgets.isNotEmpty()) {
                 Text("Category Budgets · $tab", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 categoryBudgets.forEach { budget ->
+                    // Current-period progress per budget type (semester falls
+                    // back to rolling 120d without a profile window).
+                    val nowMs = System.currentTimeMillis()
+                    val win = com.pesaflow.app.data.finance.budgetWindowRange(budget.type, nowMs)
                     val cSpent = transactions
                         .filter {
                             it.type == TransactionType.EXPENSE && !it.isSample &&
-                                it.category == budget.category &&
-                                it.dateTimestamp in budget.startTimestamp..budget.endTimestamp
+                                it.dateTimestamp in win && it.dateTimestamp <= nowMs &&
+                                it.category == budget.category
                         }
                         .sumOf { it.amount }
                     val cLeft = (budget.limitAmount - cSpent).coerceAtLeast(0.0)

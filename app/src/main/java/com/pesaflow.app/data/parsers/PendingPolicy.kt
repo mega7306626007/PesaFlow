@@ -14,4 +14,17 @@ object PendingPolicy {
      */
     fun isAutoApprovable(sourceTransactionId: String?, effectiveConfidence: Float): Boolean =
         !sourceTransactionId.isNullOrBlank() && effectiveConfidence >= SURE_CONFIDENCE
+
+    /**
+     * Approval-time category upgrade: an "Other" (or blank) verdict first
+     * consults learned memory, then keyword inference — so newly approved
+     * rows lift the ledger health grade instead of freezing it at D.
+     * Anything already categorized passes through untouched.
+     */
+    fun upgradeOtherCategory(current: String, memorized: String?, inferred: String): String {
+        if (current.isNotBlank() && !current.equals("Other", ignoreCase = true)) return current
+        if (!memorized.isNullOrBlank()) return memorized
+        if (inferred.isNotBlank() && !inferred.equals("Other", ignoreCase = true)) return inferred
+        return current
+    }
 }

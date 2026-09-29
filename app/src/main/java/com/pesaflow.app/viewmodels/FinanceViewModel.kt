@@ -330,12 +330,25 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
 
     fun approvePending(pending: PendingTransaction, finalCategory: String, finalType: TransactionType = pending.type) {
         viewModelScope.launch {
-            val tx = repository.approvePendingTransaction(pending, finalCategory, finalType)
+            val category = resolveApprovalCategory(pending, finalCategory)
+            val tx = repository.approvePendingTransaction(pending, category, finalType)
             pushUndo(Undoable.Approved(pending, tx.id))
             // Approvals are corrections too — teach the engine.
-            CategoryMemory.learn(prefs(), tx.merchant, finalCategory)
+            CategoryMemory.learn(prefs(), tx.merchant, category)
             com.pesaflow.app.data.ledger.ConfidenceMemory.record(prefs(), pending.merchant, true)
         }
+    }
+
+
+    /**
+     * Approval-time upgrade: "Other" verdicts consult learned memory, then
+     * keyword inference, before they hit the ledger — approved rows arrive
+     * categorized and the health grade can actually climb.
+     */
+    fun resolveApprovalCategory(pending: PendingTransaction, edited: String): String {
+        val memorized = com.pesaflow.app.data.ledger.CategoryMemory.lookup(prefs(), pending.merchant)
+        val inferred = com.pesaflow.app.data.parsers.MpesaParser.inferCategory(pending.merchant, pending.type)
+        return com.pesaflow.app.data.parsers.PendingPolicy.upgradeOtherCategory(edited, memorized, inferred)
     }
 
 
@@ -347,8 +360,9 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             val done = repository.transact {
                 rows.map { p ->
-                    val tx = repository.approvePendingTransaction(p, p.category, p.type)
-                    CategoryMemory.learn(prefs(), tx.merchant, p.category)
+                    val category = resolveApprovalCategory(p, p.category)
+                    val tx = repository.approvePendingTransaction(p, category, p.type)
+                    CategoryMemory.learn(prefs(), tx.merchant, category)
                     com.pesaflow.app.data.ledger.ConfidenceMemory.record(prefs(), p.merchant, true)
                     Undoable.Approved(p, tx.id)
                 }

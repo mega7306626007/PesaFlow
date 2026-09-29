@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
@@ -209,19 +210,32 @@ fun ReviewScreen(viewModel: FinanceViewModel) {
                         }
                         Card(
                             modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                            shape = com.pesaflow.app.ui.theme.ppShapes.card,
+                            colors = CardDefaults.cardColors(containerColor = com.pesaflow.app.ui.theme.ppColors.surface),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, com.pesaflow.app.ui.theme.ppColors.border)
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(PesaSpacing.md),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
+                                Text(
+                                    grade,
+                                    style = com.pesaflow.app.ui.theme.ppTypography.financialLarge,
+                                    color = when (grade) {
+                                        "A+", "A" -> com.pesaflow.app.ui.theme.ppColors.success
+                                        "B" -> com.pesaflow.app.ui.theme.ppColors.gold
+                                        "C" -> com.pesaflow.app.ui.theme.ppColors.warning
+                                        else -> com.pesaflow.app.ui.theme.ppColors.error
+                                    }
+                                )
+                                Spacer(modifier = Modifier.width(PesaSpacing.md))
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text("Ledger health: $grade", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    Text("Ledger health", style = com.pesaflow.app.ui.theme.ppTypography.labelLarge, color = com.pesaflow.app.ui.theme.ppColors.textPrimary)
                                     Text(
                                         "$catPct% categorized · ${dupGroups.size} duplicate groups · ${stragglers.size} stale pendings",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        style = com.pesaflow.app.ui.theme.ppTypography.bodySmall,
+                                        color = com.pesaflow.app.ui.theme.ppColors.textTertiary
                                     )
                                 }
                                 if (grade != "A+") {
@@ -235,7 +249,7 @@ fun ReviewScreen(viewModel: FinanceViewModel) {
                                             ) ?: com.pesaflow.app.data.parsers.MpesaParser.inferCategory(tx.merchant, tx.type).takeIf { it != "Other" }
                                             if (fix != null) viewModel.replaceTransaction(tx.id, tx.copy(category = fix))
                                         }
-                                    }) { Text("Auto-fix") }
+                                    }) { Text("Auto-fix", style = com.pesaflow.app.ui.theme.ppTypography.labelMedium, color = com.pesaflow.app.ui.theme.ppColors.gold) }
                                 }
                             }
                         }

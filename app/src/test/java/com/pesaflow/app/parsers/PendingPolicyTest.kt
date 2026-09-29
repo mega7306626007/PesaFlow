@@ -31,4 +31,19 @@ class PendingPolicyTest {
     fun `threshold is shared and sane`() {
         assertEquals(0.85f, PendingPolicy.SURE_CONFIDENCE, 0.0f)
     }
+
+    @Test
+    fun `categorized rows pass through untouched`() {
+        assertEquals("Food", PendingPolicy.upgradeOtherCategory("Food", "Transport", "Shopping"))
+        assertEquals("food", PendingPolicy.upgradeOtherCategory("food", null, "Transport"))
+    }
+
+    @Test
+    fun `other consults memory then inference`() {
+        assertEquals("Transport", PendingPolicy.upgradeOtherCategory("Other", "Transport", "Shopping"))
+        assertEquals("Shopping", PendingPolicy.upgradeOtherCategory("Other", null, "Shopping"))
+        assertEquals("OTHER", PendingPolicy.upgradeOtherCategory("OTHER", null, "Other"))
+        assertEquals("Other", PendingPolicy.upgradeOtherCategory("Other", null, ""))
+        assertEquals("", PendingPolicy.upgradeOtherCategory("", null, "Other"))
+    }
 }

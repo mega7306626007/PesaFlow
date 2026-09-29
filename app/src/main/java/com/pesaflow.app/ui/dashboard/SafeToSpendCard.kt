@@ -108,17 +108,36 @@ fun SafeToSpendCard(
             val weekdayFactor = paceProfile?.let { factorForToday(it, nowMs) }
 
             if (mode == "Day") {
-                val base = dailyExplicit ?: (monthly?.div(30) ?: 0.0)
-            val baseLabel = if (dailyExplicit != null) "your Daily budget" else "monthly ÷ 30"
-            val dailyTarget = (base - planDaily - billDaily).toInt().coerceAtLeast(0)
-                val yesterdaySpend = spentIn(dayStart - day, dayStart)
+                // Dynamic target: remaining money over remaining days — never a
+                // frozen monthly/30 (on the 28th you divide by the 3 days left,
+                // not 30). Yesterday already sits inside spentMonth, so no
+                // separate rollover to double-count it. Every new transaction
+                // shrinks remaining and the target moves the same day.
+                val monthlyLimit = monthly ?: (dailyExplicit?.times(30) ?: 0.0)
+                val spentMonth = com.pesaflow.app.data.money.monthScopedTotal(
+                    transactions,
+                    com.pesaflow.app.data.models.TransactionType.EXPENSE,
+                    nowMs
+                )
                 val todaySpend = spentIn(dayStart, Long.MAX_VALUE)
-                val rollover = dailyTarget - yesterdaySpend
-                val allowance = (dailyTarget * (weekdayFactor ?: 1.0)).toInt() + rollover
-                val left = allowance - todaySpend
+                val yesterdaySpend = spentIn(dayStart - day, dayStart)
+                val dom = cal.get(java.util.Calendar.DAY_OF_MONTH)
+                val dim = cal.getActualMaximum(java.util.Calendar.DAY_OF_MONTH)
+                val fig = safeDayFigure(
+                    monthlyLimit, spentMonth, planDaily, billDaily,
+                    weekdayFactor ?: 1.0, todaySpend, dom, dim
+                )
+                val dailyTarget = fig.dailyTarget
+                val allowance = fig.allowance
+                val left = fig.left
+                val expectedToDate = if (dim > 0) monthlyLimit * dom / dim else 0.0
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    BudgetRing(fraction = if (allowance > 0) todaySpend.toFloat() / allowance else 1f)
+                    BudgetRing(fraction = when {
+                        allowance > 0 -> todaySpend.toFloat() / allowance
+                        todaySpend > 0 || spentMonth > 0 -> 1f
+                        else -> 0f
+                    })
                     Spacer(modifier = Modifier.width(16.dp))
                     Column {
                         Text(
@@ -134,13 +153,14 @@ fun SafeToSpendCard(
                     }
                 }
             Spacer(modifier = Modifier.height(8.dp))
-            SafeMathRow(label = "Daily target ($baseLabel)", value = "KSh ${base.toInt()}")
+            SafeMathRow(label = "Daily target (KSh ${fig.remaining.toInt()} ÷ ${fig.daysLeft}d left)", value = "KSh $dailyTarget")
             if (weekdayFactor != null) {
                 SafeMathRow(
                     label = "Weekday pace (×${"%.1f".format(weekdayFactor)} today)",
                     value = "KSh ${(dailyTarget * weekdayFactor).toInt()}"
                 )
             }
+            SafeMathRow(label = "Spent this month", value = "−KSh ${spentMonth.toInt()}")
             SafeMathRow(label = "Yesterday", value = "−KSh $yesterdaySpend")
             SafeMathRow(label = "Plans reserve", value = "−KSh $planDaily")
             SafeMathRow(label = "Bills share", value = "−KSh $billDaily")
@@ -148,16 +168,16 @@ fun SafeToSpendCard(
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 when {
-                    yesterdaySpend == 0 && todaySpend == 0 ->
-                            "No spending logged the last two days — full KSh $allowance is available today."
+                    todaySpend == 0 && spentMonth == 0.0 ->
+                            "No spending logged yet — full KSh $allowance is available today."
                         allowance <= 0 ->
-                            "Yesterday went KSh ${-rollover} over (KSh $yesterdaySpend vs KSh $dailyTarget) and wiped today out — spend KSh 0 if you can. 🛑"
+                            "KSh ${-fig.remaining.toInt()} over pace (KSh ${spentMonth.toInt()} of KSh ${monthlyLimit.toInt()} with ${fig.daysLeft}d left) — essentials only. 🛑"
                         allowance < 100 ->
                             "KSh $allowance left — prioritize: Food KSh ${(allowance * 0.8).toInt()} + essentials KSh ${(allowance * 0.2).toInt()}. 💪"
-                        yesterdaySpend <= dailyTarget ->
-                            "You spent KSh $yesterdaySpend yesterday instead of KSh $dailyTarget — congrats! 🎉 Today you can spend KSh $allowance."
+                        spentMonth <= expectedToDate ->
+                            "KSh ${spentMonth.toInt()} of KSh ${monthlyLimit.toInt()} with ${fig.daysLeft}d left — on pace! 🎉 Today you can spend KSh $allowance."
                         else ->
-                            "Yesterday went KSh ${-rollover} over (KSh $yesterdaySpend vs KSh $dailyTarget). Tighten today to KSh $allowance.$planNote"
+                            "KSh ${spentMonth.toInt()} of KSh ${monthlyLimit.toInt()} with ${fig.daysLeft}d left — over pace. Tighten today to KSh $allowance.$planNote"
                     } + if (left < 0 && allowance > 0) " You've passed today's allowance — pause till tomorrow. ⏸️" else "",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface
@@ -189,7 +209,11 @@ fun SafeToSpendCard(
                 val weekLeft = weekAllowance - thisWeekSpend
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    BudgetRing(fraction = if (weekAllowance > 0) thisWeekSpend.toFloat() / weekAllowance else 1f)
+                    BudgetRing(fraction = when {
+                        weekAllowance > 0 -> thisWeekSpend.toFloat() / weekAllowance
+                        thisWeekSpend > 0 -> 1f
+                        else -> 0f
+                    })
                     Spacer(modifier = Modifier.width(16.dp))
                     Column {
                         Text(

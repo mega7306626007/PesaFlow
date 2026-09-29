@@ -5,6 +5,7 @@ import com.pesaflow.app.data.time.changeVsPrevious
 import com.pesaflow.app.data.time.daysElapsedInWeek
 import com.pesaflow.app.data.time.inPastOrNow
 import com.pesaflow.app.data.time.mondayIndex
+import com.pesaflow.app.data.time.monthRange
 import com.pesaflow.app.data.time.previousRollingDays
 import com.pesaflow.app.data.time.previousWeekRange
 import com.pesaflow.app.data.time.rollingDays
@@ -167,5 +168,25 @@ class TimeWindowsTest {
         assertTrue(inPastOrNow(now, now))
         assertTrue(inPastOrNow(now - 1, now))
         assertFalse(inPastOrNow(now + 1, now))
+    }
+
+    @Test
+    fun `monthRange spans the calendar month only`() {
+        val now = at(2026, Calendar.SEPTEMBER, 13, 9, 0)
+        val m = monthRange(now)
+        assertEquals(at(2026, Calendar.SEPTEMBER, 1, 0, 0), m.startInclusive)
+        assertEquals(at(2026, Calendar.OCTOBER, 1, 0, 0), m.endExclusive)
+        assertTrue(at(2026, Calendar.SEPTEMBER, 30, 23, 59) in m)
+        assertFalse(at(2026, Calendar.AUGUST, 31, 23, 59) in m)
+        assertFalse(at(2026, Calendar.OCTOBER, 1, 0, 0) in m)
+    }
+
+    @Test
+    fun `yearRange spans january to january`() {
+        val now = at(2026, Calendar.SEPTEMBER, 13, 9, 0)
+        val y = com.pesaflow.app.data.time.yearRange(now)
+        assertEquals(at(2026, Calendar.JANUARY, 1, 0, 0), y.startInclusive)
+        assertEquals(at(2027, Calendar.JANUARY, 1, 0, 0), y.endExclusive)
+        assertFalse(at(2025, Calendar.DECEMBER, 31, 23, 59) in y)
     }
 }
