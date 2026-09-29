@@ -67,21 +67,21 @@ fun BudgetsScreen(viewModel: FinanceViewModel) {
 
     val now = System.currentTimeMillis()
     val day = 24L * 60 * 60 * 1000
-    val dayStart = dayStartOf(now)
-    val (periodType, windowStart, windowLabel) = when (tab) {
-        "Daily" -> Triple(BudgetType.DAILY, dayStart, "today")
-        "Weekly" -> Triple(BudgetType.WEEKLY, dayStart - 6 * day, "last 7 days")
-        "Semester" -> Triple(BudgetType.SEMESTER, now - 120 * day, "last 120 days")
-        else -> Triple(BudgetType.MONTHLY, monthStartOf(now), "this month")
-    }
+    // Tab windows come from the central helper: calendar weeks, bounded
+    // ranges, human labels — one definition for every budget surface.
+    val (periodType, periodWindow, windowLabel) =
+        com.pesaflow.app.data.finance.budgetTabWindow(tab, now)
     val target = budgets.filter { it.type == periodType }.sumOf { it.limitAmount }
     val spent = transactions
-        .filter { it.type == TransactionType.EXPENSE && !it.isSample && it.dateTimestamp >= windowStart }
+        .filter {
+            it.type == TransactionType.EXPENSE && !it.isSample &&
+                it.dateTimestamp in periodWindow && it.dateTimestamp <= now
+        }
         .sumOf { it.amount }
     // Envelope carryover: last month's unspent rolls into this month's target
     val prevWindowStart = monthStartOf(monthStartOf(now) - 24L * 60 * 60 * 1000)
     val lastSpent = transactions
-        .filter { it.type == TransactionType.EXPENSE && !it.isSample && it.dateTimestamp >= prevWindowStart && it.dateTimestamp < windowStart }
+        .filter { it.type == TransactionType.EXPENSE && !it.isSample && it.dateTimestamp >= prevWindowStart && it.dateTimestamp < periodWindow.startInclusive }
         .sumOf { it.amount }
     val carry = if (tab == "Monthly") (target - lastSpent).coerceAtLeast(0.0) else 0.0
     val displayTarget = target + carry
@@ -334,13 +334,9 @@ fun BudgetsScreen(viewModel: FinanceViewModel) {
             }
 
             // Period hero card
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-            ) {
-                Column(modifier = Modifier.padding(24.dp)) {
-                    Text("$tab Budget · $windowLabel", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            com.pesaflow.app.ui.theme.PpCard(kind = com.pesaflow.app.ui.theme.PpCardKind.LARGE) {
+                Column(verticalArrangement = Arrangement.spacedBy(com.pesaflow.app.ui.theme.ppSpacing.sm)) {
+                    Text("$tab budget · $windowLabel", style = com.pesaflow.app.ui.theme.ppTypography.labelLarge, color = com.pesaflow.app.ui.theme.ppColors.textTertiary)
                     Spacer(modifier = Modifier.height(12.dp))
                     if (target <= 0) {
                         var quickAmount by remember(tab) { mutableStateOf("") }
@@ -371,7 +367,9 @@ fun BudgetsScreen(viewModel: FinanceViewModel) {
                             Button(
                                 onClick = {
                                     quickAmount.toDoubleOrNull()?.takeIf { it > 0 }?.let {
-                                        viewModel.addBudget("ALL", it, periodType)
+                                        // Upsert, never stack: repeated Sets replace
+                                        // the ALL row instead of doubling the target.
+                                        viewModel.upsertBudget("ALL", it, periodType)
                                         quickAmount = ""
                                     }
                                 },
@@ -406,18 +404,16 @@ fun BudgetsScreen(viewModel: FinanceViewModel) {
                             }
                         }
                         Spacer(modifier = Modifier.height(12.dp))
-                        LinearProgressIndicator(
-                            progress = { (spent / target).toFloat().coerceIn(0f, 1f) },
-                            modifier = Modifier.fillMaxWidth(),
-                            color = if (spent >= target) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                            trackColor = MaterialTheme.colorScheme.surfaceVariant
+                        com.pesaflow.app.ui.theme.PpProgress(
+                            fraction = (spent / target).toFloat(),
+                            kind = if (spent >= target) com.pesaflow.app.ui.theme.PpProgressKind.ERROR else com.pesaflow.app.ui.theme.PpProgressKind.GOLD
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             periodVerdict(tab, spent, displayTarget),
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.Medium,
-                            color = if (spent > target) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                            color = if (spent > target) com.pesaflow.app.ui.theme.ppColors.error else com.pesaflow.app.ui.theme.ppColors.gold
                         )
                     }
                 }
@@ -426,7 +422,7 @@ fun BudgetsScreen(viewModel: FinanceViewModel) {
             // Category budgets of this period
             val categoryBudgets = budgets.filter { it.type == periodType && it.category != "ALL" }
             if (categoryBudgets.isNotEmpty()) {
-                Text("Category Budgets · $tab", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                com.pesaflow.app.ui.theme.PpSectionHeader(title = "Category budgets · $tab")
                 categoryBudgets.forEach { budget ->
                     // Current-period progress per budget type (semester falls
                     // back to rolling 120d without a profile window).
@@ -436,7 +432,7 @@ fun BudgetsScreen(viewModel: FinanceViewModel) {
                         .filter {
                             it.type == TransactionType.EXPENSE && !it.isSample &&
                                 it.dateTimestamp in win && it.dateTimestamp <= nowMs &&
-                                it.category == budget.category
+                                it.category.equals(budget.category, ignoreCase = true)
                         }
                         .sumOf { it.amount }
                     val cLeft = (budget.limitAmount - cSpent).coerceAtLeast(0.0)
@@ -593,7 +589,9 @@ fun BudgetsScreen(viewModel: FinanceViewModel) {
                 Button(onClick = {
                     val limitVal = limit.toDoubleOrNull()
                     if (limitVal != null && limitVal > 0 && category.isNotBlank()) {
-                        viewModel.addBudget(category.trim(), limitVal, selectedType, sharedWith.trim())
+                        // Upsert: re-saving an envelope replaces it — editing
+                        // must never stack a silent twin that doubles the bar.
+                        viewModel.upsertBudget(category.trim(), limitVal, selectedType, sharedWith.trim())
                         showAddDialog = false
                     }
                 }) { Text("Save") }

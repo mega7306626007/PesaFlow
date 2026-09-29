@@ -1,5 +1,6 @@
 package com.pesaflow.app.parsers
 
+import com.pesaflow.app.data.finance.budgetTabWindow
 import com.pesaflow.app.data.finance.budgetWindowRange
 import com.pesaflow.app.data.models.BudgetType
 import org.junit.Assert.*
@@ -68,5 +69,35 @@ class BudgetWindowsTest {
         val w = budgetWindowRange(BudgetType.ANNUAL, now)
         assertTrue(at(2026, Calendar.MARCH, 3) in w)
         assertFalse(at(2025, Calendar.DECEMBER, 31) in w)
+    }
+
+    @Test
+    fun `tab mapping uses calendar weeks not rolling days`() {
+        // Wednesday Sep 9: the Weekly tab starts Monday Sep 7, not "6 days ago
+        // at the current time" — mid-day boundaries sliced local dates.
+        val now = at(2026, Calendar.SEPTEMBER, 9, 9, 0)
+        val (type, win, label) = budgetTabWindow("Weekly", now)
+        assertEquals(BudgetType.WEEKLY, type)
+        assertEquals(at(2026, Calendar.SEPTEMBER, 7, 0, 0), win.startInclusive)
+        assertEquals("this week", label)
+        assertFalse(at(2026, Calendar.SEPTEMBER, 6, 23, 59) in win)
+    }
+
+    @Test
+    fun `tab mapping covers all tabs`() {
+        val now = at(2026, Calendar.SEPTEMBER, 9, 9, 0)
+        val (dType, dWin, dLabel) = budgetTabWindow("Daily", now)
+        assertEquals(BudgetType.DAILY, dType)
+        assertEquals("today", dLabel)
+        assertFalse(at(2026, Calendar.SEPTEMBER, 8, 23, 59) in dWin)
+        val (mType, mWin, mLabel) = budgetTabWindow("Monthly", now)
+        assertEquals(BudgetType.MONTHLY, mType)
+        assertEquals("this month", mLabel)
+        assertEquals(at(2026, Calendar.SEPTEMBER, 1, 0, 0), mWin.startInclusive)
+        val (sType, sWin, _) = budgetTabWindow("Semester", now)
+        assertEquals(BudgetType.SEMESTER, sType)
+        assertEquals(121, sWin.days().size)
+        val (uType, _, _) = budgetTabWindow("SomethingElse", now)
+        assertEquals(BudgetType.MONTHLY, uType)
     }
 }

@@ -33,3 +33,21 @@ fun budgetWindowRange(
         BudgetType.ANNUAL -> yearRange(now)
     }
 }
+
+/**
+ * Budgets-screen tab mapping: which budget type, which live window, which
+ * human label. Weekly means the calendar week everywhere in the app —
+ * never a drifting rolling 7 days.
+ */
+fun budgetTabWindow(tab: String, now: Long): Triple<BudgetType, TimeRange, String> {
+    return when (tab) {
+        "Daily" -> Triple(BudgetType.DAILY, todayRange(now), "today")
+        "Weekly" -> Triple(BudgetType.WEEKLY, thisWeekRange(now), "this week")
+        "Semester" -> Triple(
+            BudgetType.SEMESTER,
+            TimeRange(addDays(startOfDay(now), -120), addDays(startOfDay(now), 1)),
+            "last 120 days"
+        )
+        else -> Triple(BudgetType.MONTHLY, monthRange(now), "this month")
+    }
+}
