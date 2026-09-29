@@ -115,7 +115,10 @@ fun buildAnalyticsReport(
     summaries.forEach { s ->
         val recentTotal = byCat[s.category]!!.filter { it.dateTimestamp >= mid }.sumOf { it.amount }
         val olderTotal = byCat[s.category]!!.filter { it.dateTimestamp < mid }.sumOf { it.amount }
-        s.trendPercent = if (olderTotal > 0) ((recentTotal - olderTotal) / olderTotal * 100) else 0.0
+        // Dust baselines grow "4000000%": under KSh 100 of history a percent
+        // is noise, not signal — report flat instead of a fantasy number.
+        s.trendPercent = if (olderTotal < com.pesaflow.app.data.time.DUST_BASELINE) 0.0
+        else ((recentTotal - olderTotal) / olderTotal * 100).coerceIn(-999.0, 999.0)
     }
     val topSpender = summaries.maxByOrNull { it.total }?.let { Pair(it.category, it.total) } ?: Pair(ExpenseCategory.OTHER, 0.0)
     val savingsRate = if (totalIncome > 0) ((totalIncome - totalSpent) / totalIncome * 100).toInt() else 0

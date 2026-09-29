@@ -453,8 +453,11 @@ fun TransactionsScreen(
                         confirmButton = {
                             TextButton(onClick = {
                                 val keep = g.maxByOrNull { it.dateTimestamp }?.id
-                                g.filter { it.id != keep }.forEach { viewModel.deleteTransaction(it.id) }
-                                mergeGroup = null
+                                // Batched: one statement, one emission — N single
+                                // deletes recompose per row and ANR big merges.
+                                viewModel.deleteTransactions(g.filter { it.id != keep }.map { it.id }) {
+                                    mergeGroup = null
+                                }
                             }) { Text("Merge", color = MaterialTheme.colorScheme.error) }
                         },
                         dismissButton = { TextButton(onClick = { mergeGroup = null }) { Text("Keep all") } }
@@ -477,10 +480,11 @@ fun TransactionsScreen(
             text = { Text("KSh ${picked.sumOf { it.amount }.toInt()} goes away. Batch deletes can't be undone — singles can.") },
             confirmButton = {
                 TextButton(onClick = {
-                    picked.forEach { viewModel.deleteTransaction(it.id) }
-                    selection = emptySet()
-                    selecting = false
-                    confirmBulk = false
+                    viewModel.deleteTransactions(picked.map { it.id }) {
+                        selection = emptySet()
+                        selecting = false
+                        confirmBulk = false
+                    }
                 }) { Text("Delete all", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = { TextButton(onClick = { confirmBulk = false }) { Text("Keep") } }

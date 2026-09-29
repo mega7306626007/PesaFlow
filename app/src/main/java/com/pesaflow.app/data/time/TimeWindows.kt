@@ -99,4 +99,14 @@ fun inPastOrNow(ts: Long, now: Long): Boolean = ts <= now
 
 /** Whole-percent move vs a previous baseline; null when there is no baseline. */
 fun changeVsPrevious(current: Double, previous: Double): Int? =
-    if (previous > 0) ((current - previous) / previous * 100).toInt() else null
+    if (previous > 0) ((current - previous) / previous * 100).coerceIn(-999.0, 999.0).toInt() else null
+
+/**
+ * Baselines under this are dust, not data: KSh 20,000 vs KSh 0.50 is not
+ * "up 4000000%", it is "new spending off a dust baseline". Callers show
+ * absolutes instead of a percent below this line.
+ */
+const val DUST_BASELINE = 100.0
+
+/** True when a percent-vs-previous would be noise rather than signal. */
+fun isDustBaseline(previous: Double): Boolean = previous in 0.0..DUST_BASELINE

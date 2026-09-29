@@ -139,6 +139,22 @@ class TimeWindowsTest {
     }
 
     @Test
+    fun `changeVsPrevious caps fantasy percents`() {
+        // KSh 20,000 vs a KSh 0.50 baseline is not "up 4000000%".
+        assertEquals(999, changeVsPrevious(20000.0, 0.5))
+        assertEquals(999, changeVsPrevious(1_000_000.0, 1.0))
+        assertEquals(-100, changeVsPrevious(0.0, 1000.0))
+    }
+
+    @Test
+    fun `dust baselines are detected`() {
+        assertTrue(com.pesaflow.app.data.time.isDustBaseline(0.5))
+        assertTrue(com.pesaflow.app.data.time.isDustBaseline(100.0))
+        assertFalse(com.pesaflow.app.data.time.isDustBaseline(100.01))
+        assertFalse(com.pesaflow.app.data.time.isDustBaseline(5000.0))
+    }
+
+    @Test
     fun `days elapsed counts monday as one`() {
         assertEquals(1, daysElapsedInWeek(at(2026, Calendar.SEPTEMBER, 7, 0, 1)))
         assertEquals(3, daysElapsedInWeek(at(2026, Calendar.SEPTEMBER, 9, 12, 0)))

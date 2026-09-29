@@ -109,6 +109,30 @@ class AnalyticsEngineTest {
     }
 
     @Test
+    fun `trend off dust baseline reports flat not fantasy`() {
+        // Older half totals KSh 50: a percent off that is noise, never signal.
+        val txs = listOf(
+            tx(5000.0, "Food", day(0)),
+            tx(50.0, "Food", day(20))
+        )
+        val r = buildAnalyticsReport(txs, 30, now)
+        val food = r.categorySummaries.find { it.category == ExpenseCategory.FOOD }!!
+        assertEquals(0.0, food.trendPercent, 0.0)
+        assertNull(fastestGrowingCategory(r))
+    }
+
+    @Test
+    fun `trend caps at 999`() {
+        val txs = listOf(
+            tx(20000.0, "Food", day(0)),
+            tx(1000.0, "Food", day(20))
+        )
+        val r = buildAnalyticsReport(txs, 30, now)
+        val food = r.categorySummaries.find { it.category == ExpenseCategory.FOOD }!!
+        assertEquals(999.0, food.trendPercent, 0.001)
+    }
+
+    @Test
     fun `heatmap rows are calendar weeks with matching labels`() {
         // Sunday 2026-09-13 23:00 local: Monday 00:01 and Sunday 23:59 belong
         // to the same calendar week, so they share row 0 at columns 0 and 6.

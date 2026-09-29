@@ -60,6 +60,13 @@ interface TransactionDao {
     suspend fun deleteTransaction(id: String)
 
 
+    // Batch removal: one statement, one Flow emission. Deleting N rows
+    // one-by-one re-emits the whole ledger N times — after a big scan that
+    // recomposition storm ANRs the app ("keeps stopping" on Remove).
+    @Query("DELETE FROM transactions WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<String>): Int
+
+
     @Query("SELECT * FROM transactions WHERE amount = :amount AND dateTimestamp >= :start AND dateTimestamp <= :end")
     suspend fun findInWindow(amount: Double, start: Long, end: Long): List<Transaction>
 

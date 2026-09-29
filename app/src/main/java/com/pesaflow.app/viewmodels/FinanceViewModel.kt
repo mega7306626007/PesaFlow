@@ -340,15 +340,18 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
 
 
     // Bulk confirm: one tap approves every "sure" row as suggested, one undo
-    // slot restores them all. Anything unsure stays for human eyes.
+    // slot restores them all. Anything unsure stays for human eyes. The whole
+    // sweep runs in one DB transaction so a 500-row approval emits once.
     fun approveAllPending(rows: List<PendingTransaction>) {
         if (rows.isEmpty()) return
         viewModelScope.launch {
-            val done = rows.map { p ->
-                val tx = repository.approvePendingTransaction(p, p.category, p.type)
-                CategoryMemory.learn(prefs(), tx.merchant, p.category)
-                com.pesaflow.app.data.ledger.ConfidenceMemory.record(prefs(), p.merchant, true)
-                Undoable.Approved(p, tx.id)
+            val done = repository.transact {
+                rows.map { p ->
+                    val tx = repository.approvePendingTransaction(p, p.category, p.type)
+                    CategoryMemory.learn(prefs(), tx.merchant, p.category)
+                    com.pesaflow.app.data.ledger.ConfidenceMemory.record(prefs(), p.merchant, true)
+                    Undoable.Approved(p, tx.id)
+                }
             }
             pushUndo(Undoable.ApprovedAll(done))
         }
@@ -375,12 +378,12 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
 
     // User-initiated sweep: pending rows duplicated by double-scans collapse
     // to the earliest — same code, or same amount+merchant+day. Everything
-    // else untouched. Returns removals for the toast.
+    // else untouched. Batched delete, single emission. Returns removals.
     suspend fun removeDuplicatePending(): Int {
         val rows = repository.pendingOnce().sortedBy { it.dateTimestamp }
         val seenCodes = mutableSetOf<String>()
         val seenFuzzy = mutableSetOf<Triple<Double, String, Long>>()
-        var removed = 0
+        val doomed = mutableListOf<String>()
         rows.forEach { p ->
             val code = p.sourceTransactionId.orEmpty()
             val dup = if (code.isNotBlank()) {
@@ -389,12 +392,10 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
                 val key = Triple(p.amount, p.merchant.trim().lowercase(), p.dateTimestamp / 86400000L)
                 !seenFuzzy.add(key)
             }
-            if (dup) {
-                repository.deletePendingTransaction(p.id)
-                removed++
-            }
+            if (dup) doomed.add(p.id)
         }
-        return removed
+        repository.deletePendingTransactions(doomed)
+        return doomed.size
     }
 
 
@@ -776,12 +777,13 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     /**
      * Deletes exact-duplicate ledger rows (all but the earliest per group).
      * Groups come from [exactDuplicateGroups]; the removed rows are kept for
-     * one-tap [undoAutoDedupe]. Reports how many rows went away.
+     * one-tap [undoAutoDedupe]. One batched statement — never N emissions.
+     * Reports how many rows went away.
      */
     fun autoRemoveExactDuplicates(groups: List<List<Transaction>>, onDone: (Int) -> Unit) {
         viewModelScope.launch {
             val removed = groups.flatMap { it.drop(1) }
-            removed.forEach { repository.deleteTransaction(it.id) }
+            repository.deleteTransactions(removed.map { it.id })
             lastAutoDeduped = removed
             onDone(removed.size)
         }
@@ -791,10 +793,23 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     /** Restores rows removed by [autoRemoveExactDuplicates]. Reports how many came back. */
     fun undoAutoDedupe(onDone: (Int) -> Unit) {
         viewModelScope.launch {
-            lastAutoDeduped.forEach { repository.insertTransaction(it) }
+            repository.insertTransactions(lastAutoDeduped)
             val n = lastAutoDeduped.size
             lastAutoDeduped = emptyList()
             onDone(n)
+        }
+    }
+
+
+    /** Batch ledger delete for merge/bulk surfaces: one statement, one emission. */
+    fun deleteTransactions(ids: List<String>, onDone: () -> Unit = {}) {
+        if (ids.isEmpty()) {
+            onDone()
+            return
+        }
+        viewModelScope.launch {
+            repository.deleteTransactions(ids)
+            onDone()
         }
     }
 

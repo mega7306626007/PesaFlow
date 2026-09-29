@@ -24,6 +24,50 @@ class SmartInsightsEngineTest {
         source = TransactionSource.MANUAL
     )
 
+    private fun monthTs(monthOffset: Int, day: Int): Long {
+        val c = java.util.Calendar.getInstance()
+        c.add(java.util.Calendar.MONTH, monthOffset)
+        c.set(java.util.Calendar.DAY_OF_MONTH, minOf(day, c.getActualMaximum(java.util.Calendar.DAY_OF_MONTH)))
+        c.set(java.util.Calendar.HOUR_OF_DAY, 12)
+        c.set(java.util.Calendar.MINUTE, 0)
+        c.set(java.util.Calendar.SECOND, 0)
+        c.set(java.util.Calendar.MILLISECOND, 0)
+        return c.timeInMillis
+    }
+
+    private fun txAt(amount: Double, type: TransactionType, category: String, ts: Long) = Transaction(
+        amount = amount,
+        type = type,
+        category = category,
+        dateTimestamp = ts,
+        merchant = "Test",
+        description = "",
+        paymentMethod = PaymentMethod.CASH,
+        source = TransactionSource.MANUAL
+    )
+
+    @Test
+    fun `dust baseline gets absolutes never fantasy percents`() {
+        val txs = listOf(
+            txAt(5000.0, TransactionType.EXPENSE, "Food", monthTs(0, 5)),
+            txAt(12.0, TransactionType.EXPENSE, "Food", monthTs(-1, 20))
+        )
+        val out = buildInsights(txs, emptyList(), AppLanguage.ENGLISH, "", emptyList(), emptyList(), emptyList())
+        val mom = out.first { it.contains("last month") }
+        assertTrue(mom.contains("vs KSh"))
+        assertFalse(mom.contains("%"))
+    }
+
+    @Test
+    fun `other dominance nudges to review`() {
+        val txs = listOf(
+            txAt(4000.0, TransactionType.EXPENSE, "Other", monthTs(0, 5)),
+            txAt(500.0, TransactionType.EXPENSE, "Transport", monthTs(0, 6))
+        )
+        val out = buildInsights(txs, emptyList(), AppLanguage.ENGLISH, "", emptyList(), emptyList(), emptyList())
+        assertTrue(out.any { it.contains("uncategorized") })
+    }
+
     @Test
     fun `empty history returns single hint`() {
         val out = buildInsights(emptyList(), emptyList(), AppLanguage.ENGLISH, "", emptyList(), emptyList(), emptyList())

@@ -7,6 +7,8 @@ import com.pesaflow.app.data.models.Debt
 import com.pesaflow.app.data.models.SavingsGoal
 import com.pesaflow.app.data.models.Transaction
 import com.pesaflow.app.data.models.TransactionType
+import com.pesaflow.app.data.time.changeVsPrevious
+import com.pesaflow.app.data.time.isDustBaseline
 import com.pesaflow.app.ui.budgets.Persona
 import java.util.Calendar
 
@@ -218,6 +220,16 @@ heldBalance: Double = 0.0
             "Matumizi makubwa: ${it.key} — $amt ($pct%).",
             "Spending kubwa: ${it.key} — $amt ($pct%)."
         ))
+        // Uncategorized bulk: a donut that reads "Other 100%" is a filing
+        // problem, not a spending fact — one Review pass teaches it.
+        if (it.key.equals("Other", ignoreCase = true) && pct >= 50) {
+            out.add(t(
+                "$amt sits uncategorized — open Review and teach each row once; every insight sharpens after. 🏷️",
+                "KSh ${it.value.toInt()} haina category — ingia Review ufundishe kila row mara moja; insights zote zinakali after. 🏷️",
+                "KSh ${it.value.toInt()} hazina kategoria — ingia Review ufundishe kila safu mara moja. 🏷️",
+                "KSh ${it.value.toInt()} bado Other — Review once, insights sharpen after. 🏷️"
+            ))
+        }
     }
 
     // Weekend vs weekday pace
@@ -246,24 +258,34 @@ heldBalance: Double = 0.0
         ))
     }
 
-    // Month-over-month change
+    // Month-over-month change. Dust baselines get absolutes — a percent off
+    // KSh 12 last month is noise ("up 4000000%"), never insight.
     val lastTotal = txs.filter { it.type == TransactionType.EXPENSE && !it.isSample && inMonth(it.dateTimestamp, -1) }.sumOf { it.amount }
     if (lastTotal > 0) {
-        val change = ((monthTotal - lastTotal) / lastTotal * 100).toInt()
         val top = monthExp.groupBy { it.category }.maxByOrNull { e -> e.value.sumOf { it.amount } }?.key ?: "spending"
-        out.add(
-            if (change > 0) t(
-                "Up $change% vs last month. Watch $top. 📈",
-                "Ime Panda $change% vs last month. Watch $top. 📈",
-                "Juu $change% kuliko mwezi uliopita. Angalia $top. 📈",
-                "Up $change% vs last month. Watch $top. 📈"
-            ) else t(
-                "Down ${-change}% vs last month. Good job! 📉",
-                "Imeshuka ${-change}%. Poa sana! 📉",
-                "Chini ${-change}%. Kazi nzuri! 📉",
-                "Down ${-change}%. Poa! 📉"
+        if (isDustBaseline(lastTotal)) {
+            out.add(t(
+                "KSh ${monthTotal.toInt()} vs KSh ${lastTotal.toInt()} last month — too little history for a percent. Watch $top. 📊",
+                "KSh ${monthTotal.toInt()} vs KSh ${lastTotal.toInt()} last month — history kidogo sana kwa percent. Watch $top. 📊",
+                "KSh ${monthTotal.toInt()} dhidi ya KSh ${lastTotal.toInt()} mwezi uliopita — historia kidogo mno kwa asilimia. Angalia $top. 📊",
+                "KSh ${monthTotal.toInt()} vs KSh ${lastTotal.toInt()} last month — history kidogo for %. Watch $top. 📊"
+            ))
+        } else {
+            val change = changeVsPrevious(monthTotal, lastTotal) ?: 0
+            out.add(
+                if (change > 0) t(
+                    "Up $change% vs last month. Watch $top. 📈",
+                    "Ime Panda $change% vs last month. Watch $top. 📈",
+                    "Juu $change% kuliko mwezi uliopita. Angalia $top. 📈",
+                    "Up $change% vs last month. Watch $top. 📈"
+                ) else t(
+                    "Down ${-change}% vs last month. Good job! 📉",
+                    "Imeshuka ${-change}%. Poa sana! 📉",
+                    "Chini ${-change}%. Kazi nzuri! 📉",
+                    "Down ${-change}%. Poa! 📉"
+                )
             )
-        )
+        }
     }
 
     // Income vs spending verdict + savings rate

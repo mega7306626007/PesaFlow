@@ -163,6 +163,13 @@ class FinanceRepository(private val database: AppDatabase) {
     }
 
 
+    /** Batch delete: single statement so bulk removes emit once. */
+    suspend fun deleteTransactions(ids: List<String>): Int {
+        if (ids.isEmpty()) return 0
+        return database.transactionDao().deleteByIds(ids)
+    }
+
+
     suspend fun deleteAllTransactions() {
         database.transactionDao().deleteAllTransactions()
     }
@@ -263,6 +270,13 @@ class FinanceRepository(private val database: AppDatabase) {
 
     suspend fun deletePendingTransaction(id: String) {
         database.pendingTransactionDao().deletePendingTransaction(id)
+    }
+
+
+    /** Batch pending delete: single statement so sweeps emit once. */
+    suspend fun deletePendingTransactions(ids: List<String>): Int {
+        if (ids.isEmpty()) return 0
+        return database.pendingTransactionDao().deleteByIds(ids)
     }
 
 

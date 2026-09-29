@@ -40,6 +40,11 @@ interface PendingTransactionDao {
     suspend fun deletePendingTransaction(id: String)
 
 
+    // Same batch rule as the ledger: one statement, one emission.
+    @Query("DELETE FROM pending_transactions WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<String>): Int
+
+
     @Query("DELETE FROM pending_transactions")
     suspend fun deleteAllPendingTransactions()
 

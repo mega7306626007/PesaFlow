@@ -753,8 +753,14 @@ class SundayReportWorker(appContext: Context, params: WorkerParameters) : Corout
                 if (weekIncome > 0) append(", income KSh ${weekIncome.toInt()}")
                 append(".")
                 if (prevWeekSpent > 0) {
-                    val change = changeVsPrevious(weekSpent, prevWeekSpent) ?: 0
-                    append(if (change > 0) " Up $change% vs last week." else " Down ${-change}% vs last week. 👌")
+                    // Dust baselines get absolutes, never a fantasy percent:
+                    // KSh 20,000 vs KSh 0.50 is not "up 4000000%".
+                    if (com.pesaflow.app.data.time.isDustBaseline(prevWeekSpent)) {
+                        append(" KSh ${weekSpent.toInt()} vs KSh ${prevWeekSpent.toInt()} last week.")
+                    } else {
+                        val change = changeVsPrevious(weekSpent, prevWeekSpent) ?: 0
+                        append(if (change > 0) " Up $change% vs last week." else " Down ${-change}% vs last week. 👌")
+                    }
                 }
                 if (top3.isNotEmpty()) append(" Top: " + top3.joinToString(", ") { "${it.key} ${it.value.toInt()}" } + ".")
                 priciestDay?.let { if (it.second > 0) append(" Priciest day: ${it.first}.") }

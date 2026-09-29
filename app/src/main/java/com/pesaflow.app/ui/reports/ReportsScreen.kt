@@ -518,7 +518,13 @@ fun WeeklyReportContent(transactions: List<Transaction>) {
         Text(
             "+ KSh ${income.toInt()} in · avg KSh ${(expenses / elapsed).toInt()}/day" +
                 (top?.let { " · top: ${it.key} KSh ${it.value.toInt()}" } ?: "") +
-                (weekVsPrev?.let { " · ${if (it > 0) "up $it%" else "down ${-it}%"} vs last week (KSh ${prevExpenses.toInt()})" } ?: ""),
+                (weekVsPrev?.let {
+                    // weekVsPrev is non-null only when prevExpenses > 0, so a
+                    // dust baseline here just means absolutes, not a percent.
+                    if (com.pesaflow.app.data.time.isDustBaseline(prevExpenses))
+                        " · KSh ${expenses.toInt()} vs KSh ${prevExpenses.toInt()} last week"
+                    else " · ${if (it > 0) "up $it%" else "down ${-it}%"} vs last week (KSh ${prevExpenses.toInt()})"
+                } ?: ""),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
