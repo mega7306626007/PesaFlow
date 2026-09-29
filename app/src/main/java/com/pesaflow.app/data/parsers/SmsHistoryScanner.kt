@@ -91,6 +91,14 @@ suspend fun scanRecentSms(
                     // Sender powers bank-name patterns — dropping it blinds them.
                     // Harvest the wallet balance even from unparseable bodies.
                     if (newestBalance == null) parseBalance(body)?.let { newestBalance = it }
+                    // Fee bleed: harvest "Transaction cost, KSh X" tails — this
+                    // month's pot only, so a 5-month scan never back-fills it.
+                    val monthStart = com.pesaflow.app.data.time.monthRange(System.currentTimeMillis()).startInclusive
+                    if (smsDate >= monthStart) {
+                        com.pesaflow.app.data.parsers.parseFee(body)?.let {
+                            com.pesaflow.app.data.parsers.saveFee(context, it)
+                        }
+                    }
                     // The inbox stamp travels as the carrier fallback: text
                     // dates win when sane, otherwise this exact stamp lands —
                     // no more 120-second now-guessing at this layer.

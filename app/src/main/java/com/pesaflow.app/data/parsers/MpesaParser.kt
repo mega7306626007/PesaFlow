@@ -23,10 +23,16 @@ object MpesaParser {
         "(?i)(?:([A-Z0-9]{8,12})\\s+)?Confirmed\\.\\s*You\\s+bought\\s+KSh\\s*([0-9,.]+)\\s+of\\s+Airtime\\s+on\\s+([0-9/\\-]{6,12})\\s+at\\s+([0-9:.\\sAPM]+)"
     )
     private val withdrawRegex = Pattern.compile(
-        "(?i)([A-Z0-9]{8,12})\\s*Confirmed\\.\\s*Withdraw\\s+KSh\\s*([0-9,.]+)\\s+from\\s+([^.]+?)\\.\\s+on\\s+([0-9/\\-]{6,12})\\s+at\\s+([0-9:.\\sAPM]+)"
+        "(?i)([A-Z0-9]{8,12})\\s*Confirmed\\.(?:\\s*on\\s+([0-9/\\-]{6,12})\\s+at\\s+([0-9:.\\sAPM]+))?\\s*Withdraw\\s+KSh\\s*([0-9,.]+)\\s+from\\s+(.+?)(?:\\s+New\\s+(?:M-?PESA|Account)\\s+balance|\\s+M-?PESA\\s+balance|\\s+M-Shwari\\s+balance|\\s+on\\s+([0-9/\\-]{6,12})\\s+at\\s+([0-9:.\\sAPM]+)|$)"
     )
     private val paybillRegex = Pattern.compile(
         "(?i)([A-Z0-9]{8,12})\\s*Confirmed\\.\\s*KSh\\s*([0-9,.]+)\\s+sent\\s+to\\s+([^.]+?)(?:\\s+for\\s+account\\s+([0-9A-Za-z-]+))?\\s+on\\s+([0-9/\\-]{6,12})\\s+at\\s+([0-9:.\\sAPM]+)"
+    )
+    // Date-first person send ("Ksh2,100.00 sent to BRIAN MBUGUA 0723447655 on
+    // 17/9/13 at 3:16 PM") — ahead of paybill, whose account group is optional
+    // and would otherwise swallow person sends. The phone is dropped, not filed.
+    private val personSendRegex = Pattern.compile(
+        "(?i)([A-Z0-9]{8,12})\\s*Confirmed\\.\\s*KSh\\s*([0-9,.]+)\\s+sent\\s+to\\s+([A-Za-z' .]+?)\\s+(\\d{10,13})\\s+on\\s+([0-9/\\-]{6,12})\\s+at\\s+([0-9:.\\sAPM]+)"
     )
     private val tillRegex = Pattern.compile(
         "(?i)([A-Z0-9]{8,12})\\s*Confirmed\\.\\s*KSh\\s*([0-9,.]+)\\s+paid\\s+to\\s+(?:Till\\s+)?([0-9]{5,9})\\s*-?\\s*([^.]*?)\\s+on\\s+([0-9/\\-]{6,12})\\s+at\\s+([0-9:.\\sAPM]+)"
@@ -39,8 +45,9 @@ object MpesaParser {
     )
     // Amount rides either side of the verb — "transferred KSh X" and the
     // equally real "KSh X transferred". Branches read group(2) ?: group(3).
+    // Date/time groups ride the tail ("... to M-Shwari account on d/M/yy at h:mm AM").
     private val mshwariRegex = Pattern.compile(
-        "(?i)([A-Z0-9]{8,12})\\s*Confirmed\\.[^.]{0,80}?(?:transferred\\s+KSh\\s*([0-9,.]+)|KSh\\s*([0-9,.]+)\\s+transferred)[^.]{0,80}?(?:from\\s+M-?PESA\\s+)?to\\s+M-?SHWARI"
+        "(?i)([A-Z0-9]{8,12})\\s*Confirmed\\.[^.]{0,80}?(?:transferred\\s+KSh\\s*([0-9,.]+)|KSh\\s*([0-9,.]+)\\s+transferred)(?:\\s+from\\s+(?:your\\s+)?M-?PESA\\s+)?\\s*to\\s+M-?SHWARI(?:\\s+account)?\\s+on\\s+([0-9/\\-]{6,12})\\s+at\\s+([0-9:.\\sAPM]+)"
     )
     private val bankInRegex = Pattern.compile(
         "(?i)([A-Z0-9]{8,12})\\s*Confirmed\\.[^.]{0,80}?(?:transferred\\s+KSh\\s*([0-9,.]+)|KSh\\s*([0-9,.]+)\\s+transferred)\\s+from\\s+((?!M-?SHWARI)[A-Za-z\\- ]+?)\\s+to\\s+M-?PESA"
@@ -76,12 +83,14 @@ object MpesaParser {
         "(?i)(?:okoa(?: jahazi)?|emergency airtime)[^.]{0,60}?(?:(?:KSh|KES|Ksh)\\s*)?(?<![*#0-9,.])([0-9,.]+)(?!#)\\s*(?:bob)?"
     )
     // Agent deposit: cash → M-Pesa (money entering the tracked wallet).
+    // Tolerates the date-first ordering ("Confirmed. on d/M/yy at h:mm AM Give ...").
     private val depositRegex = Pattern.compile(
         "(?i)([A-Z0-9]{8,12})\\s*Confirmed\\.[^.]{0,60}?deposited\\s+(?:KSh|KES|Ksh)\\s*([0-9,.]+)\\s+to\\s+([^.]+?)\\s+on\\s+([0-9/\\-]{6,12})\\s+at\\s+([0-9:.\\sAPM]+)"
     )
-    // M-Shwari back to wallet: internal move, spendable later.
+    // M-Shwari back to wallet: internal move, spendable later. Tolerates
+    // "from your M-Shwari account" and captures the tail date/time.
     private val mshwariOutRegex = Pattern.compile(
-        "(?i)([A-Z0-9]{8,12})\\s*Confirmed\\.[^.]{0,80}?(?:transferred\\s+KSh\\s*([0-9,.]+)|KSh\\s*([0-9,.]+)\\s+transferred)\\s+from\\s+M-?SHWARI(?:\\s+to\\s+M-?PESA)?"
+        "(?i)([A-Z0-9]{8,12})\\s*Confirmed\\.[^.]{0,80}?(?:transferred\\s+KSh\\s*([0-9,.]+)|KSh\\s*([0-9,.]+)\\s+transferred)\\s+from\\s+(?:your\\s+)?M-?SHWARI(?:\\s+account)?(?:\\s+to\\s+M-?PESA)?\\s+on\\s+([0-9/\\-]{6,12})\\s+at\\s+([0-9:.\\sAPM]+)"
     )
     // SACCO deposits (Stima, Unaitas, Mwalimu, police, harambee): real savings.
     private val saccoRegex = Pattern.compile(
@@ -173,8 +182,9 @@ object MpesaParser {
         "(?i)(sacco|stima\\s*sacco|unaitas|mwalimu|police\\s*sacco|harambee\\s*sacco)[^.]{0,80}?KSh\\s*([0-9,.]+)[^.]{0,40}?(?:confirmed|deposited|received|credited|paid)"
     )
     // Agent cash-in phrased as instruction ("Give KSh X cash to AGENT ... on ... at ...").
+    // Date may lead ("Confirmed. on d/M/yy at h:mm AM Give ...") or trail the party.
     private val agentGiveRegex = Pattern.compile(
-        "(?i)([A-Z0-9]{8,12})\\s*Confirmed\\.[^.]{0,60}?[Gg]ive\\s+KSh\\s*([0-9,.]+)\\s+cash\\s+to\\s+([^.]+?)\\s+on\\s+([0-9/\\-]{6,12})\\s+at\\s+([0-9:.\\sAPM]+)"
+        "(?i)([A-Z0-9]{8,12})\\s*Confirmed\\.(?:\\s*on\\s+([0-9/\\-]{6,12})\\s+at\\s+([0-9:.\\sAPM]+))?[^.]{0,60}?[Gg]ive\\s+KSh\\s*([0-9,.]+)\\s+cash\\s+to\\s+([^.]+?)(?:\\s+New\\s+(?:M-?PESA|Account)\\s+balance|\\s+on\\s+([0-9/\\-]{6,12})\\s+at\\s+([0-9:.\\sAPM]+)|$)"
     )
     private val BANK_SENDERS = listOf("KCB", "EQUITY", "CO-OP", "COOP", "ABSA", "STANBIC", "FAMILY", "DTB", "NCBA", "I&M", "STANCHART")
 
@@ -206,6 +216,11 @@ object MpesaParser {
     )
     private val bareReversalRegex = Pattern.compile(
         "(?i)([A-Z0-9]{8,12})[^.]{0,60}?(reversed|reversal)\\.?[^.]{0,80}?KSh\\s*([0-9,.]+)"
+    )
+    // Refund notices: amount rides BEFORE the currency ("of 10Ksh has been
+    // refunded by ...") — the standard KSh-first shapes never match these.
+    private val refundRegex = Pattern.compile(
+        "(?i)([A-Z0-9]{8,12})\\s*confirmed\\.?[^.]{0,80}?(?:of\\s+)?([0-9][0-9,]*(?:\\.[0-9]+)?)\\s*(?:Ksh|KES|Ksh)[^.]{0,60}?refunded"
     )
 
 
@@ -280,6 +295,12 @@ object MpesaParser {
         if ((low0.contains("failed") || low0.contains("unsuccessful") || low0.contains("cancelled") || low0.contains("canceled") || low0.contains("declined") || low0.contains("rejected") || low0.contains("insufficient") || low0.contains("timed out") || low0.contains("not completed") || low0.contains("bounced") || low0.contains("dishonoured") || low0.contains("dishonored")) && !low0.contains("revers")) return null
         // OTP / verification codes authorize future movement — never money.
         if (low0.contains("otp") || low0.contains("one-time pass") || low0.contains("one time pass") || low0.contains("verification code")) return null
+        // Balance inquiries ("Your M-PESA balance was Ksh339.00") move no money —
+        // only skip when no movement verb proves a transaction happened.
+        val movementVerb = low0.contains("sent") || low0.contains("received") || low0.contains("paid") ||
+            low0.contains("transferred") || low0.contains("withdraw") || low0.contains("deposited") ||
+            low0.contains("bought") || low0.contains("credited") || low0.contains("debited")
+        if (!movementVerb && (low0.contains("balance was") || low0.contains("balance request"))) return null
         // Prize scams ("won ... claim") mimic send shapes — quarantine outright.
         if ((low0.contains("won") || low0.contains("congratulations") || low0.contains("lucky winner")) && low0.contains("claim")) return null
         // Due/overdue REMINDERS aren't payments — only pass when a payment verb
@@ -305,12 +326,33 @@ object MpesaParser {
             return buildPending(
                 code = matcher.group(1),
                 amountStr = matcher.group(2),
-                party = matcher.group(3),
+                party = cleanParty(matcher.group(3)),
                 dateStr = matcher.group(4),
                 timeStr = matcher.group(5),
                 type = TransactionType.EXPENSE,
                 raw = sanitized
             )
+        }
+
+        // Date-first person send — name only, phone dropped. Skips shapes the
+        // paybill branch owns ("for account", paybill/till keywords).
+        matcher = personSendRegex.matcher(sanitized)
+        if (matcher.find()) {
+            val name = matcher.group(3).trim()
+            if (!name.contains("account", ignoreCase = true) &&
+                !name.contains("paybill", ignoreCase = true) &&
+                !name.contains("till", ignoreCase = true)
+            ) {
+                return buildPending(
+                    code = matcher.group(1),
+                    amountStr = matcher.group(2),
+                    party = name,
+                    dateStr = matcher.group(5),
+                    timeStr = matcher.group(6),
+                    type = TransactionType.EXPENSE,
+                    raw = sanitized
+                )
+            }
         }
 
 
@@ -334,7 +376,7 @@ object MpesaParser {
             return buildPending(
                 code = matcher.group(1),
                 amountStr = matcher.group(2),
-                party = (matcher.group(3) ?: "Pochi customer").trim(),
+                party = cleanParty(matcher.group(3) ?: "Pochi customer"),
                 dateStr = matcher.group(4),
                 timeStr = matcher.group(5),
                 type = TransactionType.INCOME,
@@ -548,7 +590,7 @@ object MpesaParser {
             return buildPending(
                 code = matcher.group(1),
                 amountStr = matcher.group(2),
-                party = matcher.group(3),
+                party = cleanParty(matcher.group(3) ?: "M-Pesa customer"),
                 dateStr = matcher.group(4),
                 timeStr = matcher.group(5),
                 type = TransactionType.INCOME,
@@ -572,15 +614,16 @@ object MpesaParser {
         }
 
 
-        // Match Agent withdrawal
+        // Match Agent withdrawal — date may lead ("Confirmed. on d/M/yy at
+        // h:mm AM Withdraw ...") and the party stops at the balance tail.
         matcher = withdrawRegex.matcher(sanitized)
         if (matcher.find()) {
             return buildPending(
                 code = matcher.group(1),
-                amountStr = matcher.group(2),
-                party = matcher.group(3),
-                dateStr = matcher.group(4),
-                timeStr = matcher.group(5),
+                amountStr = matcher.group(4),
+                party = cleanParty(matcher.group(5) ?: "M-Pesa agent"),
+                dateStr = matcher.group(2) ?: matcher.group(6),
+                timeStr = matcher.group(3) ?: matcher.group(7),
                 // Cash in hand is a move, not spending — spending is logged
                 // when the cash is actually used (avoids double-counting).
                 type = TransactionType.TRANSFER,
@@ -592,7 +635,7 @@ object MpesaParser {
         // Match Paybill with optional account number
         matcher = paybillRegex.matcher(sanitized)
         if (matcher.find()) {
-            val business = (matcher.group(3) ?: "Paybill").trim()
+            val business = cleanParty(matcher.group(3) ?: "Paybill")
             val account = matcher.group(4)?.trim().orEmpty()
             return buildPending(
                 code = matcher.group(1),
@@ -666,8 +709,8 @@ object MpesaParser {
                 code = matcher.group(1),
                 amountStr = matcher.group(2) ?: matcher.group(3),
                 party = "M-Shwari",
-                dateStr = null,
-                timeStr = null,
+                dateStr = matcher.group(4),
+                timeStr = matcher.group(5),
                 type = TransactionType.SAVING,
                 raw = sanitized,
                 confidence = 0.85f
@@ -888,7 +931,7 @@ object MpesaParser {
             return buildPending(
                 code = null,
                 amountStr = matcher.group(1) ?: matcher.group(2),
-                party = (matcher.group(3) ?: "Telco transfer").trim(),
+                party = cleanParty(matcher.group(3) ?: "Telco transfer"),
                 dateStr = null,
                 timeStr = null,
                 type = TransactionType.EXPENSE,
@@ -904,7 +947,7 @@ object MpesaParser {
             return buildPending(
                 code = null,
                 amountStr = matcher.group(1) ?: matcher.group(2),
-                party = (matcher.group(3) ?: "Telco transfer").trim(),
+                party = cleanParty(matcher.group(3) ?: "Telco transfer"),
                 dateStr = null,
                 timeStr = null,
                 type = TransactionType.INCOME,
@@ -988,8 +1031,8 @@ object MpesaParser {
                 code = matcher.group(1),
                 amountStr = matcher.group(2) ?: matcher.group(3),
                 party = "M-Shwari",
-                dateStr = null,
-                timeStr = null,
+                dateStr = matcher.group(4),
+                timeStr = matcher.group(5),
                 type = TransactionType.TRANSFER,
                 raw = sanitized,
                 confidence = 0.85f
@@ -1049,20 +1092,44 @@ object MpesaParser {
         }
 
 
-        // Match reversal notices without the standard "Confirmed." header
-        matcher = bareReversalRegex.matcher(sanitized)
+        // Refund of a paid transaction ("Your Pay Shop transaction X of 10Ksh
+        // has been refunded by ...") — amount rides BEFORE the currency word.
+        matcher = refundRegex.matcher(sanitized)
         if (matcher.find()) {
             return buildPending(
                 code = matcher.group(1),
-                amountStr = matcher.group(3),
-                party = "M-Pesa Reversal",
+                amountStr = matcher.group(2),
+                party = "Refund",
                 dateStr = null,
                 timeStr = null,
                 // Returned money is restored, not earned — keep it out of income.
                 type = TransactionType.TRANSFER,
                 raw = sanitized,
                 confidence = 0.8f
-            )?.copy(category = "Transfers")?.copy(category = "Transfers")
+            )?.copy(category = "Transfers")
+        }
+
+
+        // Match reversal notices without the standard "Confirmed." header
+        matcher = bareReversalRegex.matcher(sanitized)
+        if (matcher.find()) {
+            // The only Ksh figure may be the balance tail ("Your account
+            // balance is now Ksh5,987.00") — a balance is not the reversed
+            // amount, and the amount is unknowable from the text. Skip.
+            val pre = sanitized.substring(0, matcher.start(3)).lowercase()
+            if (!pre.contains("balance")) {
+                return buildPending(
+                    code = matcher.group(1),
+                    amountStr = matcher.group(3),
+                    party = "M-Pesa Reversal",
+                    dateStr = null,
+                    timeStr = null,
+                    // Returned money is restored, not earned — keep it out of income.
+                    type = TransactionType.TRANSFER,
+                    raw = sanitized,
+                    confidence = 0.8f
+                )?.copy(category = "Transfers")?.copy(category = "Transfers")
+            }
         }
 
 
@@ -1255,10 +1322,10 @@ object MpesaParser {
         if (matcher.find()) {
             return buildPending(
                 code = matcher.group(1),
-                amountStr = matcher.group(2),
-                party = (matcher.group(3) ?: "M-Pesa agent").trim(),
-                dateStr = matcher.group(4),
-                timeStr = matcher.group(5),
+                amountStr = matcher.group(4),
+                party = (matcher.group(5) ?: "M-Pesa agent").trim(),
+                dateStr = matcher.group(2) ?: matcher.group(6),
+                timeStr = matcher.group(3) ?: matcher.group(7),
                 type = TransactionType.INCOME,
                 raw = sanitized,
                 confidence = 0.85f
@@ -1269,45 +1336,54 @@ object MpesaParser {
         val gm = genericMoveRegex.matcher(sanitized)
         if (gm.find()) {
             val amountStr = gm.group(1) ?: ""
-            val low = sanitized.lowercase()
-            val type = when {
-                low.contains("received") || low.contains("credited") || low.contains("deposited") -> TransactionType.INCOME
-                low.contains("transferred") || low.contains("withdrawn") || low.contains("reversed") -> TransactionType.TRANSFER
-                else -> TransactionType.EXPENSE
+            // Balance tails ("Your M-PESA balance was Ksh339.00") are not
+            // movements — a balance-preceded amount means no money moved.
+            val pre = sanitized.substring(0, gm.start(1)).lowercase()
+            if (!pre.contains("balance")) {
+                val low = sanitized.lowercase()
+                val type = when {
+                    low.contains("received") || low.contains("credited") || low.contains("deposited") -> TransactionType.INCOME
+                    low.contains("transferred") || low.contains("withdrawn") || low.contains("reversed") -> TransactionType.TRANSFER
+                    else -> TransactionType.EXPENSE
+                }
+                var party = (gm.group(2) ?: "").split(Regex("\\s+on\\s+|\\s+at\\s+"))[0].trim()
+                repeat(3) {
+                    party = party.replace(Regex("^(to|from|for|of|paid|sent|received|credited|deposited|transferred|withdrawn)\\s+", RegexOption.IGNORE_CASE), "").trim()
+                }
+                if (party.length > 48) party = party.take(48)
+                if (party.isEmpty()) party = "M-Pesa"
+                return buildPending(
+                    code = null,
+                    amountStr = amountStr,
+                    party = cleanParty(party),
+                    dateStr = null,
+                    timeStr = null,
+                    type = type,
+                    raw = sanitized,
+                    confidence = 0.5f
+                )
             }
-            var party = (gm.group(2) ?: "").split(Regex("\\s+on\\s+|\\s+at\\s+"))[0].trim()
-            repeat(3) {
-                party = party.replace(Regex("^(to|from|for|of|paid|sent|received|credited|deposited|transferred|withdrawn)\\s+", RegexOption.IGNORE_CASE), "").trim()
-            }
-            if (party.length > 48) party = party.take(48)
-            if (party.isEmpty()) party = "M-Pesa"
-            return buildPending(
-                code = null,
-                amountStr = amountStr,
-                party = party,
-                dateStr = null,
-                timeStr = null,
-                type = type,
-                raw = sanitized,
-                confidence = 0.5f
-            )
         }
 
 
         // Generic fallback: confirmed code + amount, lower confidence.
         // Reversals return money, everything else unknown leaves as expense.
+        // Balance-preceded amounts are balance tails, not movements — skip.
         matcher = fallbackRegex.matcher(sanitized)
         if (matcher.find()) {
-            val reversal = sanitized.contains("revers", ignoreCase = true)
-            return buildPending(
-                code = matcher.group(1),
-                amountStr = matcher.group(2),
-                party = if (reversal) "M-Pesa Reversal" else "M-Pesa",
-                dateStr = null,
-                timeStr = null,
-                type = if (reversal) TransactionType.TRANSFER else TransactionType.EXPENSE,
-                raw = sanitized
-            )
+            val pre = sanitized.substring(0, matcher.start(2)).lowercase()
+            if (!pre.contains("balance")) {
+                val reversal = sanitized.contains("revers", ignoreCase = true)
+                return buildPending(
+                    code = matcher.group(1),
+                    amountStr = matcher.group(2),
+                    party = if (reversal) "M-Pesa Reversal" else "M-Pesa",
+                    dateStr = null,
+                    timeStr = null,
+                    type = if (reversal) TransactionType.TRANSFER else TransactionType.EXPENSE,
+                    raw = sanitized
+                )
+            }
         }
 
 
@@ -1336,6 +1412,16 @@ object MpesaParser {
         "(?i)\\b(\\d{1,2}:\\d{2}(?::\\d{2})?\\s*(?:AM|PM|hrs|HRS))",
         "(?i)(?<!\\d)(\\d{1,2}:\\d{2})(?!\\d)"
     )
+
+    // Party cleanup: real texts glue phone numbers to names — "JOHN DOE
+    // 0722000000" (trailing) or "254729639024 MORRIS M." (leading). The
+    // number is not the merchant; filing it splits one person into many.
+    private fun cleanParty(raw: String): String {
+        var p = raw.trim()
+        p = p.replace(Regex("\\s+\\d{10,13}$"), "")
+        p = p.replace(Regex("^\\d{10,13}\\s+"), "")
+        return p.trim()
+    }
 
     private fun harvestDateTime(body: String): Pair<String?, String?> {
         var date: String? = null
@@ -1437,15 +1523,18 @@ object MpesaParser {
                 .replace("\\s+".toRegex(), " ").trim()
             // 4-digit years first (a "12/09/2026" forced through dd/MM/yy lands
             // in 2020 — the "confirm yesterday" ghost). Strict, newest wins.
+            // 12h-with-marker patterns lead: "dd/MM/yyyy H:mm" would swallow
+            // "3:16 PM" as 03:16 and ignore the PM. 24h times fail h (1-12)
+            // and fall through to H:mm below.
             val tries = listOf(
-                "dd/MM/yyyy H:mm", "dd/MM/yyyy h:mm a",
-                "dd/MM/yy H:mm", "dd/MM/yy h:mm a",
-                "dd-MMM-yyyy H:mm", "dd-MMM-yyyy h:mm a",
-                "dd-MMM-yy H:mm", "dd-MMM-yy h:mm a",
-                "dd MMM yyyy H:mm", "dd MMM yyyy h:mm a",
-                "dd MMM yy H:mm", "dd MMM yy h:mm a",
-                "dd MMMM yyyy H:mm", "dd MMMM yyyy h:mm a",
-                "yyyy-MM-dd H:mm", "yyyy-MM-dd h:mm a",
+                "dd/MM/yyyy h:mm a", "dd/MM/yyyy H:mm",
+                "dd/MM/yy h:mm a", "dd/MM/yy H:mm",
+                "dd-MMM-yyyy h:mm a", "dd-MMM-yyyy H:mm",
+                "dd-MMM-yy h:mm a", "dd-MMM-yy H:mm",
+                "dd MMM yyyy h:mm a", "dd MMM yyyy H:mm",
+                "dd MMM yy h:mm a", "dd MMM yy H:mm",
+                "dd MMMM yyyy h:mm a", "dd MMMM yyyy H:mm",
+                "yyyy-MM-dd h:mm a", "yyyy-MM-dd H:mm",
                 "dd/MM/yyyy", "dd/MM/yy",
                 "dd-MMM-yyyy", "dd-MMM-yy", "dd MMMM yyyy", "yyyy-MM-dd"
             )
