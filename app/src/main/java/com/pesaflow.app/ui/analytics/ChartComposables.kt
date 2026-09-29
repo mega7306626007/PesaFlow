@@ -20,6 +20,8 @@ import com.pesaflow.app.ui.theme.ChartPalette
 import com.pesaflow.app.ui.theme.DangerRed
 import com.pesaflow.app.ui.theme.SuccessGreen
 import com.pesaflow.app.ui.theme.WarningAmber
+import com.pesaflow.app.ui.theme.ppColors
+import com.pesaflow.app.ui.theme.ppTypography
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -84,7 +86,7 @@ fun MetricDistributionDonutChart(
 @Composable
 fun BudgetRing(fraction: Float, modifier: Modifier = Modifier) {
     val pct = (fraction.coerceIn(0f, 1f) * 100).toInt()
-    val trackColor = MaterialTheme.colorScheme.surfaceVariant
+    val trackColor = ppColors.border
     Box(modifier = modifier.size(96.dp), contentAlignment = Alignment.Center) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             drawArc(
@@ -95,14 +97,14 @@ fun BudgetRing(fraction: Float, modifier: Modifier = Modifier) {
                 style = Stroke(width = 12.dp.toPx(), cap = StrokeCap.Round)
             )
             drawArc(
-                color = if (fraction >= 1f) DangerRed else SuccessGreen,
+                color = if (fraction >= 1f) ppColors.error else ppColors.gold,
                 startAngle = -90f,
                 sweepAngle = 360f * fraction.coerceIn(0f, 1f),
                 useCenter = false,
                 style = Stroke(width = 12.dp.toPx(), cap = StrokeCap.Round)
             )
         }
-        Text("$pct%", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("$pct%", style = ppTypography.labelLarge, color = ppColors.textPrimary)
     }
 }
 

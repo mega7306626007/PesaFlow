@@ -45,7 +45,16 @@ val DangerRed = Color(0xFFEF5350)
 val InfoBlue = Color(0xFF29B6F6)
 val MutedGray = Color(0xFF9E9E9E)
 val ChartPurple = Color(0xFFAB47BC)
-val ChartPalette = listOf(FreshMint, InfoBlue, WarningAmber, DangerRed, ChartPurple)
+// Donut/chart slices draw from the token system — navy-compatible hues,
+ // never neon. Gold appears once; income/expense read instantly.
+val ChartPalette = listOf(
+    ppColors.brightBlue,
+    ppColors.income,
+    ppColors.gold,
+    ppColors.info,
+    ppColors.warning,
+    ppColors.expense
+)
 val SoftCardSurface = Color(0xFF252525)
 
 

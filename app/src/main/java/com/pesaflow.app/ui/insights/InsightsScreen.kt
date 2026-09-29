@@ -136,15 +136,12 @@ fun InsightsScreen(viewModel: FinanceViewModel) {
 
             // Visualization Analytics Charts Component Block
             item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(modifier = Modifier.padding(20.dp)) {
-                        Text("Spending Footprint Breakdown", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text("Tap a slice label to highlight it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                com.pesaflow.app.ui.theme.PpCard(kind = com.pesaflow.app.ui.theme.PpCardKind.LARGE) {
+                    Column(verticalArrangement = Arrangement.spacedBy(com.pesaflow.app.ui.theme.ppSpacing.sm)) {
+                        com.pesaflow.app.ui.theme.PpSectionHeader(
+                            title = "Spending footprint",
+                            subtitle = "Tap a slice label to highlight it"
+                        )
                         val distribution = remember(transactions) {
                             transactions.filter { it.type == TransactionType.EXPENSE && !it.isSample }.groupBy { it.category }.mapValues { entry -> entry.value.sumOf { it.amount } }
                         }
@@ -155,21 +152,18 @@ fun InsightsScreen(viewModel: FinanceViewModel) {
                                 onSelectCategory = { chartFilter = if (chartFilter == it) null else it }
                             )
                         } else {
-                            Text("Add transactions to generate interactive graphs.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 8.dp))
+                            Text("Add transactions to generate interactive graphs.", style = com.pesaflow.app.ui.theme.ppTypography.bodySmall, color = com.pesaflow.app.ui.theme.ppColors.textTertiary, modifier = Modifier.padding(vertical = 8.dp))
                         }
                     }
                 }
             }
             item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(modifier = Modifier.padding(20.dp)) {
-                        Text("Velocity Analytics Trend", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text("Your last 10 expenses, oldest → newest", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                com.pesaflow.app.ui.theme.PpCard(kind = com.pesaflow.app.ui.theme.PpCardKind.LARGE) {
+                    Column(verticalArrangement = Arrangement.spacedBy(com.pesaflow.app.ui.theme.ppSpacing.sm)) {
+                        com.pesaflow.app.ui.theme.PpSectionHeader(
+                            title = "Velocity trend",
+                            subtitle = "Your last 10 expenses, oldest → newest"
+                        )
                         val linePoints = remember(transactions) { transactions.filter { it.type == com.pesaflow.app.data.models.TransactionType.EXPENSE && !it.isSample }.take(10).map { it.amount }.reversed() }
                         if (linePoints.isNotEmpty()) {
                             HistoricalTrendLineChart(
@@ -177,7 +171,7 @@ fun InsightsScreen(viewModel: FinanceViewModel) {
                                 chartDescription = "Spending trend, last 10 expenses, oldest to newest. Latest KSh ${linePoints.last().toInt()}."
                             )
                         } else {
-                            Text("No spending yet — log an expense and the trend draws itself.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("No spending yet — log an expense and the trend draws itself.", style = com.pesaflow.app.ui.theme.ppTypography.bodySmall, color = com.pesaflow.app.ui.theme.ppColors.textTertiary)
                         }
                     }
                 }

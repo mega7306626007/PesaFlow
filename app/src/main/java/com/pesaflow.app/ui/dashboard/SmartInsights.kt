@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import com.pesaflow.app.data.schedule.WeekPlan
 import com.pesaflow.app.ui.budgets.Persona
 import com.pesaflow.app.ui.budgets.parsePersona
+import com.pesaflow.app.ui.theme.ppSpacing
 
 
 @Composable
@@ -75,36 +76,27 @@ fun SmartInsightsCard(
     }
     val shown = remember(insights, muted) { insights.filter { insightTag(it) !in muted } }
     if (shown.isEmpty() && muted.isEmpty()) return
-    Card(
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        verticalArrangement = Arrangement.spacedBy(ppSpacing.sm)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("Smart Insights 💡", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-            Spacer(modifier = Modifier.height(8.dp))
-            shown.forEach { insight ->
-                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    Text(
-                        "• $insight",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.weight(1f)
-                    )
-                    TextButton(onClick = {
-                        val next = muted + insightTag(insight)
-                        muted = next
-                        insightPrefs.edit().putStringSet("muted_insights", next).apply()
-                    }) { Text("✕", style = MaterialTheme.typography.bodySmall) }
+        com.pesaflow.app.ui.theme.PpSectionHeader(title = "Smart Insights 💡")
+        shown.forEach { insight ->
+            com.pesaflow.app.ui.theme.PpInsightCard(
+                text = insight,
+                onDismiss = {
+                    val next = muted + insightTag(insight)
+                    muted = next
+                    insightPrefs.edit().putStringSet("muted_insights", next).apply()
                 }
-                Spacer(modifier = Modifier.height(4.dp))
-            }
-            if (muted.isNotEmpty()) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = {
-                        muted = emptySet()
-                        insightPrefs.edit().remove("muted_insights").apply()
-                    }) { Text("Show muted (${muted.size})", style = MaterialTheme.typography.bodySmall) }
-                }
+            )
+        }
+        if (muted.isNotEmpty()) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = {
+                    muted = emptySet()
+                    insightPrefs.edit().remove("muted_insights").apply()
+                }) { Text("Show muted (${muted.size})", style = com.pesaflow.app.ui.theme.ppTypography.bodySmall) }
             }
         }
     }

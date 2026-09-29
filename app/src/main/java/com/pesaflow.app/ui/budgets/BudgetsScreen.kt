@@ -435,45 +435,46 @@ fun BudgetsScreen(viewModel: FinanceViewModel) {
                                 it.dateTimestamp in budget.startTimestamp..budget.endTimestamp
                         }
                         .sumOf { it.amount }
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(20.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text(budget.category, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                    val cLeft = (budget.limitAmount - cSpent).coerceAtLeast(0.0)
+                    val cPct = (cSpent / budget.limitAmount * 100).coerceIn(0.0, 100.0)
+                    com.pesaflow.app.ui.theme.PpCard(kind = com.pesaflow.app.ui.theme.PpCardKind.STANDARD) {
+                        Column(verticalArrangement = Arrangement.spacedBy(com.pesaflow.app.ui.theme.ppSpacing.sm)) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    budget.category,
+                                    style = com.pesaflow.app.ui.theme.ppTypography.labelLarge,
+                                    color = com.pesaflow.app.ui.theme.ppColors.textPrimary
+                                )
                                 TextButton(onClick = { viewModel.deleteBudget(budget.id) }) {
-                                    Text("Remove", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                                    Text("Remove", style = com.pesaflow.app.ui.theme.ppTypography.labelMedium, color = com.pesaflow.app.ui.theme.ppColors.error)
                                 }
                             }
-                            LinearProgressIndicator(
-                                progress = { (cSpent / budget.limitAmount).toFloat().coerceIn(0f, 1f) },
-                                modifier = Modifier.fillMaxWidth(),
-                                color = if (cSpent >= budget.limitAmount) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                                trackColor = MaterialTheme.colorScheme.surfaceVariant
+                            com.pesaflow.app.ui.theme.PpProgress(
+                                fraction = (cSpent / budget.limitAmount).toFloat(),
+                                kind = if (cSpent >= budget.limitAmount) com.pesaflow.app.ui.theme.PpProgressKind.ERROR else com.pesaflow.app.ui.theme.PpProgressKind.GOLD
                             )
-                            Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                "KSh ${cSpent.toInt()} of KSh ${budget.limitAmount.toInt()}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                "KSh ${cSpent.toInt()} of KSh ${budget.limitAmount.toInt()} · " +
+                                    if (cLeft > 0) "KSh ${cLeft.toInt()} left · ${cPct.toInt()}% used"
+                                    else "Over by KSh ${(cSpent - budget.limitAmount).toInt()}",
+                                style = com.pesaflow.app.ui.theme.ppTypography.bodySmall,
+                                color = com.pesaflow.app.ui.theme.ppColors.textTertiary
                             )
                             if (budget.sharedWith.isNotBlank()) {
                                 val members = budget.sharedWith.split(",").map { it.trim() }.filter { it.isNotEmpty() }
                                 Text(
                                     "Shared: ${members.joinToString(", ")} · KSh ${(budget.limitAmount / (members.size + 1)).toInt()} each",
-                                    style = MaterialTheme.typography.bodySmall,
+                                    style = com.pesaflow.app.ui.theme.ppTypography.bodySmall,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.primary
+                                    color = com.pesaflow.app.ui.theme.ppColors.brightBlue
                                 )
                             }
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                                 TextButton(onClick = { sharingBudget = budget }) {
                                     Text(
                                         if (budget.sharedWith.isBlank()) "Share" else "Edit share",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.primary
+                                        style = com.pesaflow.app.ui.theme.ppTypography.labelMedium,
+                                        color = com.pesaflow.app.ui.theme.ppColors.gold
                                     )
                                 }
                             }
@@ -506,24 +507,21 @@ fun BudgetsScreen(viewModel: FinanceViewModel) {
                     val daysLeft = ((goal.targetTimestamp - now) / day).coerceAtLeast(0)
                     val perDay = if (daysLeft > 0) remaining / daysLeft else remaining
                     val fraction = if (goal.targetAmount > 0) (goal.currentAmount / goal.targetAmount).toFloat().coerceIn(0f, 1f) else 0f
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(20.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text(goal.title, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                    com.pesaflow.app.ui.theme.PpCard(kind = com.pesaflow.app.ui.theme.PpCardKind.STANDARD) {
+                        Column(verticalArrangement = Arrangement.spacedBy(com.pesaflow.app.ui.theme.ppSpacing.sm)) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    goal.title,
+                                    style = com.pesaflow.app.ui.theme.ppTypography.labelLarge,
+                                    color = com.pesaflow.app.ui.theme.ppColors.textPrimary
+                                )
                                 TextButton(onClick = { viewModel.deleteSavingsGoal(goal.id) }) {
-                                    Text("Remove", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                                    Text("Remove", style = com.pesaflow.app.ui.theme.ppTypography.labelMedium, color = com.pesaflow.app.ui.theme.ppColors.error)
                                 }
                             }
-                            Spacer(modifier = Modifier.height(8.dp))
-                            LinearProgressIndicator(
-                                progress = { fraction },
-                                modifier = Modifier.fillMaxWidth(),
-                                color = InfoBlue,
-                                trackColor = MaterialTheme.colorScheme.surfaceVariant
+                            com.pesaflow.app.ui.theme.PpProgress(
+                                fraction = fraction,
+                                kind = if (remaining <= 0) com.pesaflow.app.ui.theme.PpProgressKind.SUCCESS else com.pesaflow.app.ui.theme.PpProgressKind.GOLD
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(

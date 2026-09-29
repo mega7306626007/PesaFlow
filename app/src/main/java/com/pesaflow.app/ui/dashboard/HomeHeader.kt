@@ -6,27 +6,23 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
+import androidx.compose.material3.Text
 import com.pesaflow.app.data.models.TransactionType
+import com.pesaflow.app.ui.theme.PpQuickAction
+import com.pesaflow.app.ui.theme.ppSpacing
+import com.pesaflow.app.ui.theme.ppTypography
+import com.pesaflow.app.ui.theme.ppColors
 import com.pesaflow.app.viewmodels.FinanceViewModel
 
 
+// Personalized header: greeting first, actions after the hero.
 @Composable
-fun HomeHeader(
-    viewModel: FinanceViewModel,
-    userName: String,
-    onQuickAdd: (TransactionType) -> Unit
-) {
+fun HomeGreeting(userName: String) {
     Column {
         val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
         val part = when (hour) {
@@ -44,34 +40,41 @@ fun HomeHeader(
             else -> "Burning the midnight oil 🦉"
         }
         Text(
-            if (userName.isNotBlank()) "$greet $userName" else greet,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            if (userName.isNotBlank()) "$greet, $userName" else greet,
+            style = ppTypography.h2,
+            color = ppColors.textPrimary
+        )
+        Spacer(modifier = Modifier.height(ppSpacing.xs))
+        Text(
+            "Here's your financial picture today",
+            style = ppTypography.bodySmall,
+            color = ppColors.textTertiary
         )
         Text(
             java.text.SimpleDateFormat("EEEE, d MMM", java.util.Locale.getDefault()).format(java.util.Date()),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            style = ppTypography.bodySmall,
+            color = ppColors.textTertiary
         )
-        Spacer(modifier = Modifier.height(8.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(
-                onClick = { onQuickAdd(TransactionType.EXPENSE) },
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface, contentColor = MaterialTheme.colorScheme.onSurface)
-            ) {
-                Text(viewModel.getLocalizedString("expense_btn"))
-            }
-            Button(
-                onClick = { onQuickAdd(TransactionType.INCOME) },
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary)
-            ) {
-                Text(viewModel.getLocalizedString("income_btn"))
-            }
-        }
+    }
+}
+
+@Composable
+fun HomeQuickActions(
+    viewModel: FinanceViewModel,
+    onQuickAdd: (TransactionType) -> Unit
+) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(ppSpacing.md)) {
+        PpQuickAction(
+            label = viewModel.getLocalizedString("expense_btn"),
+            icon = Icons.Filled.Remove,
+            onClick = { onQuickAdd(TransactionType.EXPENSE) },
+            modifier = Modifier.weight(1f)
+        )
+        PpQuickAction(
+            label = viewModel.getLocalizedString("income_btn"),
+            icon = Icons.Filled.Add,
+            onClick = { onQuickAdd(TransactionType.INCOME) },
+            modifier = Modifier.weight(1f)
+        )
     }
 }

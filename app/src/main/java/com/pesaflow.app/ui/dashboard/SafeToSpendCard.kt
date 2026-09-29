@@ -62,19 +62,9 @@ fun SafeToSpendCard(
     val billDaily = bills.filter { it.status != "PAID" }.sumOf { it.amount }.let { if (it > 0) (it / 30).toInt() else 0 }
     val planNote = topPlan?.let { " That cash comes out of ${it.title}." } ?: ""
     var mode by remember { mutableStateOf("Day") }
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
-    ) {
+    com.pesaflow.app.ui.theme.PpCard(kind = com.pesaflow.app.ui.theme.PpCardKind.LARGE) {
         Column(
-            modifier = Modifier
-                .background(
-                    Brush.verticalGradient(
-                        listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.surface)
-                    )
-                )
-                .padding(20.dp)
+            verticalArrangement = Arrangement.spacedBy(com.pesaflow.app.ui.theme.ppSpacing.sm)
         ) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("Safe to Spend 🛡️", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
@@ -133,13 +123,13 @@ fun SafeToSpendCard(
                     Column {
                         Text(
                             if (hide) "KSh ••••" else "KSh ${left.coerceAtLeast(0)}",
-                            style = AtmoType.figure,
-                            color = if (left < 0) Color.Red else MaterialTheme.colorScheme.onSurface
+                            style = com.pesaflow.app.ui.theme.ppTypography.financialLarge,
+                            color = if (left < 0) com.pesaflow.app.ui.theme.ppColors.error else com.pesaflow.app.ui.theme.ppColors.textPrimary
                         )
                         Text(
                             "left of KSh $allowance today" + if (planDaily > 0) " (KSh $planDaily/day kept for plans)" else "",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            style = com.pesaflow.app.ui.theme.ppTypography.bodySmall,
+                            color = com.pesaflow.app.ui.theme.ppColors.textTertiary
                         )
                     }
                 }
@@ -204,13 +194,13 @@ fun SafeToSpendCard(
                     Column {
                         Text(
                             if (hide) "KSh ••••" else "KSh ${weekLeft.coerceAtLeast(0)}",
-                            style = AtmoType.figure,
-                            color = if (weekLeft < 0) Color.Red else MaterialTheme.colorScheme.onSurface
+                            style = com.pesaflow.app.ui.theme.ppTypography.financialLarge,
+                            color = if (weekLeft < 0) com.pesaflow.app.ui.theme.ppColors.error else com.pesaflow.app.ui.theme.ppColors.textPrimary
                         )
                         Text(
                             "left of KSh $weekAllowance this week" + if (planDaily > 0) " (plans keep KSh ${planDaily * 7}/week)" else "",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            style = com.pesaflow.app.ui.theme.ppTypography.bodySmall,
+                            color = com.pesaflow.app.ui.theme.ppColors.textTertiary
                         )
                     }
                 }

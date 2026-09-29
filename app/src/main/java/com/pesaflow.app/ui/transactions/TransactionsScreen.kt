@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -315,25 +316,23 @@ fun TransactionsScreen(
                 var confirmAuto by remember { mutableStateOf(false) }
                 var autoResult by remember { mutableStateOf<String?>(null) }
                 if (dupClusters.isNotEmpty()) {
-                    Card(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                    ) {
-                        Column(Modifier.fillMaxWidth().padding(PesaSpacing.md)) {
-                            Text(
-                                "Possible duplicates (${dupClusters.size})",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                "Same amount + merchant. Merge keeps the newest, deletes the rest.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                    com.pesaflow.app.ui.theme.PpCard(kind = com.pesaflow.app.ui.theme.PpCardKind.LARGE) {
+                        Column(
+                            Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(com.pesaflow.app.ui.theme.ppSpacing.xs)
+                        ) {
+                            com.pesaflow.app.ui.theme.PpSectionHeader(
+                                title = "Possible duplicates (${dupClusters.size})",
+                                subtitle = "Same amount + merchant. Merge keeps the newest, deletes the rest."
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             if (autoCount > 0) {
                                 TextButton(onClick = { confirmAuto = true }) {
-                                    Text("Auto-remove $autoCount exact")
+                                    Text(
+                                        "Auto-remove $autoCount exact",
+                                        style = com.pesaflow.app.ui.theme.ppTypography.labelLarge,
+                                        color = com.pesaflow.app.ui.theme.ppColors.gold
+                                    )
                                 }
                             }
                             autoResult?.let { msg ->
@@ -362,10 +361,17 @@ fun TransactionsScreen(
                                 ) {
                                     Text(
                                         "${g.first().merchant} · KSh ${g.first().amount.toInt()} (${g.size}×)",
-                                        style = MaterialTheme.typography.bodySmall,
+                                        style = com.pesaflow.app.ui.theme.ppTypography.bodyMedium,
+                                        color = com.pesaflow.app.ui.theme.ppColors.textPrimary,
                                         modifier = Modifier.weight(1f)
                                     )
-                                    TextButton(onClick = { mergeGroup = g }) { Text("Review") }
+                                    TextButton(onClick = { mergeGroup = g }) {
+                                        Text(
+                                            "Review",
+                                            style = com.pesaflow.app.ui.theme.ppTypography.labelMedium,
+                                            color = com.pesaflow.app.ui.theme.ppColors.gold
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -402,19 +408,21 @@ fun TransactionsScreen(
                     }
                 }
                 val peak14 = (last14.maxOrNull() ?: 0.0).coerceAtLeast(1.0)
-                Card(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(Modifier.fillMaxWidth().padding(PesaSpacing.md)) {
-                        Text("Last 14 days", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                        Spacer(modifier = Modifier.height(4.dp))
+                com.pesaflow.app.ui.theme.PpCard(kind = com.pesaflow.app.ui.theme.PpCardKind.LARGE) {
+                    Column(
+                        Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(com.pesaflow.app.ui.theme.ppSpacing.xs)
+                    ) {
+                        com.pesaflow.app.ui.theme.PpSectionHeader(
+                            title = "Last 14 days",
+                            subtitle = "Daily spend, oldest to newest"
+                        )
                         last14.forEachIndexed { i, v ->
                             val bars = "█".repeat(((v / peak14) * 12).toInt().coerceIn(0, 12)).ifEmpty { "·" }
                             Text(
                                 "D-${13 - i} $bars KSh ${v.toInt()}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = com.pesaflow.app.ui.theme.ppTypography.bodySmall,
+                                color = com.pesaflow.app.ui.theme.ppColors.textTertiary,
                                 fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
                             )
                         }
@@ -427,20 +435,32 @@ fun TransactionsScreen(
                         .entries.sortedByDescending { it.value }.take(5)
                 }
                 if (topCats.isNotEmpty()) {
-                    Card(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                    ) {
-                        Column(Modifier.fillMaxWidth().padding(PesaSpacing.md)) {
-                            Text("Top in view", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    com.pesaflow.app.ui.theme.PpCard(kind = com.pesaflow.app.ui.theme.PpCardKind.LARGE) {
+                        Column(
+                            Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(com.pesaflow.app.ui.theme.ppSpacing.sm)
+                        ) {
+                            com.pesaflow.app.ui.theme.PpSectionHeader(title = "Top in view")
                             val topMax = topCats.first().value.coerceAtLeast(1.0)
                             topCats.forEach { e ->
-                                val bars = "█".repeat(((e.value / topMax) * 10).toInt().coerceIn(0, 10)).ifEmpty { "·" }
-                                Text(
-                                    "${e.key} $bars KSh ${e.value.toInt()}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                Column(verticalArrangement = Arrangement.spacedBy(com.pesaflow.app.ui.theme.ppSpacing.xs)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            e.key,
+                                            style = com.pesaflow.app.ui.theme.ppTypography.labelLarge,
+                                            color = com.pesaflow.app.ui.theme.ppColors.textPrimary
+                                        )
+                                        Text(
+                                            "KSh ${e.value.toInt()}",
+                                            style = com.pesaflow.app.ui.theme.ppTypography.financialSmall,
+                                            color = com.pesaflow.app.ui.theme.ppColors.textPrimary
+                                        )
+                                    }
+                                    com.pesaflow.app.ui.theme.PpProgress(fraction = (e.value / topMax).toFloat())
+                                }
                             }
                         }
                     }
@@ -532,23 +552,34 @@ fun TransactionRow(
     Card(
         onClick = { onToggleSelect?.invoke() },
         enabled = onToggleSelect != null,
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+        modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 64.dp),
+        shape = com.pesaflow.app.ui.theme.ppShapes.cardCompact,
+        colors = CardDefaults.cardColors(containerColor = com.pesaflow.app.ui.theme.ppColors.surface),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (selected) com.pesaflow.app.ui.theme.ppColors.borderGold else com.pesaflow.app.ui.theme.ppColors.border
         )
     ) {
         Row(
-            Modifier.fillMaxWidth().padding(PesaSpacing.sm),
+            Modifier.fillMaxWidth().padding(
+                horizontal = com.pesaflow.app.ui.theme.ppSpacing.lg,
+                vertical = com.pesaflow.app.ui.theme.ppSpacing.md
+            ),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(PesaSpacing.sm)
+            horizontalArrangement = Arrangement.spacedBy(com.pesaflow.app.ui.theme.ppSpacing.md)
         ) {
             CategoryIcon(category = tx.category)
             Column(Modifier.weight(1f)) {
-                Text(alias?.label ?: tx.merchant.ifBlank { tx.category }, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    alias?.label ?: tx.merchant.ifBlank { tx.category },
+                    style = com.pesaflow.app.ui.theme.ppTypography.labelLarge,
+                    color = com.pesaflow.app.ui.theme.ppColors.textPrimary,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis
+                )
                 Text(
                     (if (alias != null && tx.merchant.isNotBlank()) tx.merchant + " · " else "") + "${tx.category} · ${tx.paymentMethod.name.lowercase().replace('_', ' ').replaceFirstChar { c -> c.uppercase() }}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = com.pesaflow.app.ui.theme.ppTypography.bodySmall,
+                    color = com.pesaflow.app.ui.theme.ppColors.textTertiary,
                     maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
             }
@@ -559,31 +590,30 @@ fun TransactionRow(
                         TransactionType.TRANSFER -> "↔ "
                         else -> "− "
                     }) + tx.amount.toKSh().removePrefix("KSh "),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
+                    style = com.pesaflow.app.ui.theme.ppTypography.financialSmall,
                     color = when (tx.type) {
-                        TransactionType.INCOME -> Color(0xFF00C853)
-                        TransactionType.SAVING -> Color(0xFF00BFA5)
-                        TransactionType.INVESTMENT -> MaterialTheme.colorScheme.primary
-                        TransactionType.TRANSFER -> MaterialTheme.colorScheme.onSurfaceVariant
-                        else -> MaterialTheme.colorScheme.onSurface
+                        TransactionType.INCOME -> com.pesaflow.app.ui.theme.ppColors.income
+                        TransactionType.SAVING -> com.pesaflow.app.ui.theme.ppColors.gold
+                        TransactionType.INVESTMENT -> com.pesaflow.app.ui.theme.ppColors.brightBlue
+                        TransactionType.TRANSFER -> com.pesaflow.app.ui.theme.ppColors.textTertiary
+                        else -> com.pesaflow.app.ui.theme.ppColors.expense
                     },
                     maxLines = 1
                 )
                 if (runningBalance != null) {
                     Text(
                         "Bal " + (if (runningBalance < 0) "−" else "") + "KSh " + kotlin.math.abs(runningBalance).toInt(),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = com.pesaflow.app.ui.theme.ppTypography.bodySmall,
+                        color = com.pesaflow.app.ui.theme.ppColors.textTertiary,
                         maxLines = 1
                     )
                 }
             }
             if (showActions) {
-                IconButton(onClick = { showAlias = true }) { Icon(Icons.Filled.Person, contentDescription = "Name this sender") }
-                IconButton(onClick = onEdit) { Icon(Icons.Filled.Edit, contentDescription = "Edit transaction") }
+                IconButton(onClick = { showAlias = true }) { Icon(Icons.Filled.Person, contentDescription = "Name this sender", tint = com.pesaflow.app.ui.theme.ppColors.textTertiary) }
+                IconButton(onClick = onEdit) { Icon(Icons.Filled.Edit, contentDescription = "Edit transaction", tint = com.pesaflow.app.ui.theme.ppColors.textTertiary) }
                 IconButton(onClick = onDelete) {
-                    Icon(Icons.Filled.Delete, contentDescription = "Delete transaction", tint = MaterialTheme.colorScheme.error)
+                    Icon(Icons.Filled.Delete, contentDescription = "Delete transaction", tint = com.pesaflow.app.ui.theme.ppColors.error)
                 }
             }
         }

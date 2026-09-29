@@ -2,6 +2,7 @@ package com.pesaflow.app.ui.dashboard
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -43,7 +44,16 @@ import com.pesaflow.app.data.prefs.AppPrefs
 import com.pesaflow.app.data.time.startOfWeek
 import com.pesaflow.app.ui.NavRoutes
 import com.pesaflow.app.ui.theme.categoryEmoji
+import com.pesaflow.app.ui.theme.BudgetProgressBar
 import com.pesaflow.app.ui.theme.ExplainChip
+import com.pesaflow.app.ui.theme.PesaEmptyState
+import com.pesaflow.app.ui.theme.PpCard
+import com.pesaflow.app.ui.theme.PpCardKind
+import com.pesaflow.app.ui.theme.PpSectionHeader
+import com.pesaflow.app.ui.theme.ppColors
+import com.pesaflow.app.ui.theme.ppShapes
+import com.pesaflow.app.ui.theme.ppSpacing
+import com.pesaflow.app.ui.theme.ppTypography
 import com.pesaflow.app.ui.theme.toKSh
 import com.pesaflow.app.ui.theme.PesaSpacing
 import com.pesaflow.app.ui.theme.AtmoType
@@ -169,20 +179,16 @@ fun DashboardScreen(
     ) { innerPadding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().background(Color.Transparent).padding(innerPadding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+            verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
             item {
                 Spacer(Modifier.height(PesaSpacing.xs))
             }
 
 
-            // Time-aware greeting + quick actions
+            // Personalized header: greeting first, actions after the hero.
             item {
-                HomeHeader(
-                    viewModel = viewModel,
-                    userName = userName,
-                    onQuickAdd = onQuickAdd
-                )
+                HomeGreeting(userName = userName)
             }
 
 
@@ -250,6 +256,186 @@ fun DashboardScreen(
                             )
                             (why?.contributors.orEmpty()).forEach {
                                 Text("• $it", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+            }
+
+
+            // Quick actions sit right under the hero: spend, receive.
+            item {
+                HomeQuickActions(viewModel = viewModel, onQuickAdd = onQuickAdd)
+            }
+
+
+            // Recent activity — latest first, full history one tap away.
+            if ("recent" !in hiddenSections) {
+                item {
+                    PpSectionHeader(
+                        title = "Recent activity",
+                        actionLabel = "Full history →",
+                        onAction = { onNavigate(NavRoutes.TRANSACTIONS) }
+                    )
+                }
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = ledgerFilter == null,
+                            onClick = { ledgerFilter = null },
+                            label = { Text("All") }
+                        )
+                        listOf("INCOME" to "Income", "EXPENSE" to "Expenses", "SAVING" to "Savings", "INVESTMENT" to "Investments").forEach { (v, label) ->
+                            FilterChip(
+                                selected = ledgerFilter == v,
+                                onClick = { ledgerFilter = if (ledgerFilter == v) null else v },
+                                label = { Text(label) }
+                            )
+                        }
+                    }
+                }
+                if (transactions.isEmpty()) {
+                    item {
+                        PesaEmptyState(
+                            title = "No transactions yet",
+                            explanation = "Your financial story starts here — log your first one.",
+                            actionLabel = "Add your first expense",
+                            onAction = { onNavigate(NavRoutes.ADD_EXPENSE) }
+                        )
+                    }
+                } else {
+                    items(transactions.filter { ledgerFilter == null || it.type.name == ledgerFilter }.take(5), key = { it.id }) { tx ->
+                        val dismissState = rememberSwipeToDismissBoxState(
+                            confirmValueChange = { v ->
+                                when (v) {
+                                    SwipeToDismissBoxValue.EndToStart -> {
+                                        viewModel.deleteTransactionWithUndo(tx)
+                                        scope.launch {
+                                            val r = snackbar.showSnackbar("Deleted ${tx.merchant}.", "Undo", duration = SnackbarDuration.Long)
+                                            if (r == SnackbarResult.ActionPerformed) viewModel.undoLast()
+                                        }
+                                        true
+                                    }
+                                    SwipeToDismissBoxValue.StartToEnd -> { editingTx = tx; false }
+                                    else -> false
+                                }
+                            }
+                        )
+                        SwipeToDismissBox(
+                            state = dismissState,
+                            backgroundContent = {
+                                val dir = dismissState.dismissDirection
+                                Box(
+                                    modifier = Modifier.fillMaxSize().background(
+                                        when (dir) {
+                                            SwipeToDismissBoxValue.StartToEnd -> ppColors.brightBlue
+                                            SwipeToDismissBoxValue.EndToStart -> ppColors.error
+                                            else -> Color.Transparent
+                                        },
+                                        ppShapes.cardCompact
+                                    ).padding(16.dp),
+                                    contentAlignment = if (dir == SwipeToDismissBoxValue.StartToEnd) Alignment.CenterStart else Alignment.CenterEnd
+                                ) {
+                                    Icon(
+                                        if (dir == SwipeToDismissBoxValue.StartToEnd) Icons.Filled.Edit else Icons.Filled.Delete,
+                                        contentDescription = null,
+                                        tint = if (dir == SwipeToDismissBoxValue.StartToEnd) ppColors.textOnBlue else ppColors.textPrimary
+                                    )
+                                }
+                            }
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth()
+                                    .background(ppColors.surface, ppShapes.cardCompact)
+                                    .border(1.dp, ppColors.border, ppShapes.cardCompact)
+                                    .padding(
+                                        horizontal = ppSpacing.lg,
+                                        vertical = ppSpacing.md
+                                    ),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        "${categoryEmoji(tx.category)} ${tx.merchant}",
+                                        style = ppTypography.labelLarge,
+                                        color = ppColors.textPrimary,
+                                        maxLines = 1
+                                    )
+                                    Text(
+                                        "${tx.category} · ${java.text.SimpleDateFormat("d MMM", java.util.Locale.getDefault()).format(java.util.Date(tx.dateTimestamp))}",
+                                        style = ppTypography.bodySmall,
+                                        color = ppColors.textTertiary
+                                    )
+                                }
+                                Text(
+                                    text = "${when (tx.type) { TransactionType.INCOME -> "+"; TransactionType.TRANSFER -> "↔"; else -> "-" }} KSh ${tx.amount.toInt()}",
+                                    style = ppTypography.financialSmall,
+                                    color = if (tx.type == TransactionType.INCOME) ppColors.income else ppColors.textPrimary
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+
+            // Smart insight right after recent activity — advice on fresh numbers.
+            item {
+                SmartInsightsCard(
+                    transactions = transactions,
+                    budgets = budgets,
+                    lang = currentLanguage,
+                    name = userName,
+                    bills = bills,
+                    debts = debts,
+                    goals = savingsGoals,
+                    incomeSources = viewModel.incomeSources.collectAsState().value,
+                    persona = com.pesaflow.app.ui.budgets.parsePersona(viewModel.getOnboardingAnswers())
+                )
+            }
+
+
+            // Upcoming budgets: category, spent, remaining, percent, progress —
+            // glanceable, never a spreadsheet.
+            if (budgets.isNotEmpty()) {
+                item {
+                    PpCard(kind = PpCardKind.LARGE) {
+                        Column(verticalArrangement = Arrangement.spacedBy(ppSpacing.md)) {
+                            PpSectionHeader(
+                                title = "Budget progress",
+                                actionLabel = "Budgets →",
+                                onAction = { onNavigate(NavRoutes.BUDGETS) }
+                            )
+                            budgets.filter { it.limitAmount > 0 && it.category != "ALL" }.take(5).forEach { b ->
+                                val spent = transactions.filter {
+                                    it.type == TransactionType.EXPENSE && !it.isSample &&
+                                        it.dateTimestamp in b.startTimestamp..b.endTimestamp &&
+                                        it.category.equals(b.category, ignoreCase = true)
+                                }.sumOf { it.amount }
+                                val remaining = (b.limitAmount - spent).coerceAtLeast(0.0)
+                                val pct = (spent / b.limitAmount * 100).coerceIn(0.0, 100.0).toFloat()
+                                Column(verticalArrangement = Arrangement.spacedBy(ppSpacing.xs)) {
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text(
+                                            "${categoryEmoji(b.category)} ${b.category}",
+                                            style = ppTypography.labelLarge,
+                                            color = ppColors.textPrimary
+                                        )
+                                        Text(
+                                            "KSh ${spent.toInt()}/${b.limitAmount.toInt()}",
+                                            style = ppTypography.bodySmall,
+                                            color = ppColors.textTertiary
+                                        )
+                                    }
+                                    BudgetProgressBar(fraction = pct / 100f, showPercent = false)
+                                    Text(
+                                        if (remaining > 0) "KSh ${remaining.toInt()} left · ${pct.toInt()}% used"
+                                        else "Over by KSh ${(spent - b.limitAmount).toInt()} · ${pct.toInt()}% used",
+                                        style = ppTypography.bodySmall,
+                                        color = ppColors.textTertiary
+                                    )
+                                }
                             }
                         }
                     }
@@ -364,22 +550,6 @@ fun DashboardScreen(
             // Feature shortcuts: icon rail, not another list — distinct from More.
             item {
                 ShortcutRail(onNavigate = onNavigate)
-            }
-
-
-            // Smart insight lives here too, not only under Insights.
-            item {
-                SmartInsightsCard(
-                    transactions = transactions,
-                    budgets = budgets,
-                    lang = currentLanguage,
-                    name = userName,
-                    bills = bills,
-                    debts = debts,
-                    goals = savingsGoals,
-                    incomeSources = viewModel.incomeSources.collectAsState().value,
-                    persona = com.pesaflow.app.ui.budgets.parsePersona(viewModel.getOnboardingAnswers())
-                )
             }
 
 
@@ -704,46 +874,6 @@ fun DashboardScreen(
             }
 
 
-            // Budget progress bars
-            if (budgets.isNotEmpty()) {
-                item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(20.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text("Budget Progress 📊", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                            Spacer(modifier = Modifier.height(12.dp))
-                            budgets.filter { it.limitAmount > 0 && it.category != "ALL" }.take(5).forEach { b ->
-                                val spent = transactions.filter {
-                                    it.type == TransactionType.EXPENSE && !it.isSample &&
-                                        it.dateTimestamp in b.startTimestamp..b.endTimestamp &&
-                                        it.category.equals(b.category, ignoreCase = true)
-                                }.sumOf { it.amount }
-                                val pct = (spent / b.limitAmount * 100).coerceIn(0.0, 100.0).toFloat()
-                                Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text("${categoryEmoji(b.category)} ${b.category}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                                        Text("KSh ${spent.toInt()}/${b.limitAmount.toInt()}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                    LinearProgressIndicator(
-                                        progress = { pct / 100f },
-                                        modifier = Modifier.fillMaxWidth().height(8.dp).padding(top = 4.dp),
-                                        color = when {
-                                            pct >= 100 -> MaterialTheme.colorScheme.error
-                                            pct >= 60 -> MaterialTheme.colorScheme.tertiary
-                                            else -> MaterialTheme.colorScheme.primary
-                                        },
-                                        trackColor = MaterialTheme.colorScheme.surfaceVariant
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
             // Category spending breakdown (top 5)
             if (transactions.any { it.type == TransactionType.EXPENSE && !it.isSample }) {
                 item {
@@ -751,28 +881,26 @@ fun DashboardScreen(
                         .groupBy { it.category }.mapValues { e -> e.value.sumOf { it.amount } }
                         .entries.sortedByDescending { it.value }.take(5)
                     if (catSpending.isNotEmpty()) {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(20.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                        ) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Text("Spending by Category 🔍", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                                Spacer(modifier = Modifier.height(12.dp))
+                        PpCard(kind = PpCardKind.LARGE) {
+                            Column(verticalArrangement = Arrangement.spacedBy(ppSpacing.md)) {
+                                PpSectionHeader(title = "Spending by category")
                                 val maxCat = catSpending.firstOrNull()?.value ?: 1.0
                                 catSpending.forEach { (cat, amt) ->
                                     val barWidth = (amt / maxCat).coerceIn(0.0, 1.0).toFloat()
-                                    Column(modifier = Modifier.padding(vertical = 3.dp)) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(ppSpacing.xs)) {
                                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                            Text("${categoryEmoji(cat)} $cat", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
-                                            Text("KSh ${amt.toInt()}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                                            Text(
+                                                "${categoryEmoji(cat)} $cat",
+                                                style = ppTypography.labelLarge,
+                                                color = ppColors.textPrimary
+                                            )
+                                            Text(
+                                                "KSh ${amt.toInt()}",
+                                                style = ppTypography.financialSmall,
+                                                color = ppColors.textPrimary
+                                            )
                                         }
-                                        LinearProgressIndicator(
-                                            progress = { barWidth },
-                                            modifier = Modifier.fillMaxWidth().height(6.dp).padding(top = 2.dp),
-                                            color = MaterialTheme.colorScheme.primary,
-                                            trackColor = MaterialTheme.colorScheme.surfaceVariant
-                                        )
+                                        com.pesaflow.app.ui.theme.PpProgress(fraction = barWidth)
                                     }
                                 }
                             }
@@ -783,121 +911,27 @@ fun DashboardScreen(
 
             // See insights teaser
             item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                ) {
+                PpCard(kind = PpCardKind.INFO) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(20.dp),
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Spending Insights 💡", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                            Text("Charts, trends and advice from your data", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Button(onClick = { onNavigate(NavRoutes.INSIGHTS) }) { Text("See insights") }
-                    }
-                }
-            }
-
-
-            // Recent 5 Ledgers
-            if ("recent" !in hiddenSections) {
-                item {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Text("Recent", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        TextButton(onClick = { onNavigate(NavRoutes.TRANSACTIONS) }) { Text("Full history →") }
-                    }
-                }
-                item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(
-                            selected = ledgerFilter == null,
-                            onClick = { ledgerFilter = null },
-                            label = { Text("All") }
-                        )
-                        listOf("INCOME" to "Income", "EXPENSE" to "Expenses", "SAVING" to "Savings", "INVESTMENT" to "Investments").forEach { (v, label) ->
-                            FilterChip(
-                                selected = ledgerFilter == v,
-                                onClick = { ledgerFilter = if (ledgerFilter == v) null else v },
-                                label = { Text(label) }
+                            Text("Spending Insights 💡", style = ppTypography.h3, color = ppColors.textPrimary)
+                            Text(
+                                "Charts, trends and advice from your data",
+                                style = ppTypography.bodySmall,
+                                color = ppColors.textTertiary
                             )
                         }
-                    }
-                }
-                if (transactions.isEmpty()) {
-                    item {
-                        Column {
-                            Text("No transactions yet — tap + below to log your first one.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Button(onClick = { onNavigate(NavRoutes.ADD_EXPENSE) }) { Text("Add your first expense") }
-                        }
-                    }
-                } else {
-                    items(transactions.filter { ledgerFilter == null || it.type.name == ledgerFilter }.take(5), key = { it.id }) { tx ->
-                        val dismissState = rememberSwipeToDismissBoxState(
-                            confirmValueChange = { v ->
-                                when (v) {
-                                    SwipeToDismissBoxValue.EndToStart -> {
-                                        viewModel.deleteTransactionWithUndo(tx)
-                                        scope.launch {
-                                            val r = snackbar.showSnackbar("Deleted ${tx.merchant}.", "Undo", duration = SnackbarDuration.Long)
-                                            if (r == SnackbarResult.ActionPerformed) viewModel.undoLast()
-                                        }
-                                        true
-                                    }
-                                    SwipeToDismissBoxValue.StartToEnd -> { editingTx = tx; false }
-                                    else -> false
-                                }
-                            }
-                        )
-                        SwipeToDismissBox(
-                            state = dismissState,
-                            backgroundContent = {
-                                val dir = dismissState.dismissDirection
-                                Box(
-                                    modifier = Modifier.fillMaxSize().background(
-                                        when (dir) {
-                                            SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.primary
-                                            SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.error
-                                            else -> Color.Transparent
-                                        },
-                                        RoundedCornerShape(12.dp)
-                                    ).padding(16.dp),
-                                    contentAlignment = if (dir == SwipeToDismissBoxValue.StartToEnd) Alignment.CenterStart else Alignment.CenterEnd
-                                ) {
-                                    Icon(
-                                        if (dir == SwipeToDismissBoxValue.StartToEnd) Icons.Filled.Edit else Icons.Filled.Delete,
-                                        contentDescription = null,
-                                        tint = if (dir == SwipeToDismissBoxValue.StartToEnd) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onError
-                                    )
-                                }
-                            }
-                        ) {
-                            Row(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp)).padding(16.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text("${categoryEmoji(tx.category)} ${tx.merchant}", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
-                                    Text(
-                                        "${tx.category} · ${java.text.SimpleDateFormat("d MMM", java.util.Locale.getDefault()).format(java.util.Date(tx.dateTimestamp))}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                Text(
-                                    text = "${when (tx.type) { TransactionType.INCOME -> "+"; TransactionType.TRANSFER -> "↔"; else -> "-" }} KSh ${tx.amount.toInt()}",
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (tx.type == TransactionType.INCOME) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                        }
+                        Spacer(modifier = Modifier.width(ppSpacing.md))
+                        com.pesaflow.app.ui.theme.PpSecondaryButton(text = "See insights", onClick = { onNavigate(NavRoutes.INSIGHTS) })
                     }
                 }
             }
+
+
         }
     }
     editingTx?.let {

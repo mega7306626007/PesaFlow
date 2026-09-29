@@ -96,26 +96,16 @@ fun PesaSectionHeader(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleLarge.copy(
-                    shadow = Shadow(color = Color.Black.copy(alpha = 0.65f), offset = Offset(0f, 2f), blurRadius = 8f)
-                ),
-                fontWeight = FontWeight.Bold
-            )
+            Text(text = title, style = ppTypography.h3, color = ppColors.textPrimary)
             if (subtitle != null) {
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        shadow = Shadow(color = Color.Black.copy(alpha = 0.65f), offset = Offset(0f, 1f), blurRadius = 6f)
-                    ),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Spacer(Modifier.height(ppSpacing.xs))
+                Text(text = subtitle, style = ppTypography.bodySmall, color = ppColors.textTertiary)
             }
         }
         if (actionLabel != null && onAction != null) {
-            OutlinedButton(onClick = onAction) { Text(actionLabel) }
+            TextButton(onClick = onAction) {
+                Text(actionLabel, style = ppTypography.labelMedium, color = ppColors.gold)
+            }
         }
     }
 }
@@ -153,25 +143,26 @@ fun PesaEmptyState(
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = PesaRadius.lg,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+        shape = ppShapes.card,
+        colors = CardDefaults.cardColors(containerColor = ppColors.surface),
+        border = androidx.compose.foundation.BorderStroke(1.dp, ppColors.border),
         elevation = CardDefaults.cardElevation(defaultElevation = PesaElevation.flat)
     ) {
         Column(
-            Modifier.fillMaxWidth().padding(PesaSpacing.xl),
+            Modifier.fillMaxWidth().padding(ppSpacing.xxl),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-            Spacer(Modifier.height(PesaSpacing.xs))
+            Text(title, style = ppTypography.h3, color = ppColors.textPrimary, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(ppSpacing.sm))
             Text(
                 explanation,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = ppTypography.bodyMedium,
+                color = ppColors.textSecondary,
                 textAlign = TextAlign.Center
             )
             if (actionLabel != null && onAction != null) {
-                Spacer(Modifier.height(PesaSpacing.md))
-                Button(onClick = onAction) { Text(actionLabel) }
+                Spacer(Modifier.height(ppSpacing.lg))
+                PpPrimaryButton(text = actionLabel, onClick = onAction)
             }
         }
     }
@@ -291,44 +282,39 @@ fun QuickAction(
     }
 }
 
-// Calm budget progress: healthy blue/green, approaching amber, exceeded restrained red.
-// Never conveys status by color alone — percentage text always shown.
+// Calm budget progress: token 8dp track, gold while healthy, amber near the
+// edge, restrained red past it. Never conveys status by color alone.
 @Composable
 fun BudgetProgressBar(
     fraction: Float,
     modifier: Modifier = Modifier,
     showPercent: Boolean = true
 ) {
-    val clamped = fraction.coerceIn(0f, 1.25f)
-    val bar = (clamped.coerceAtMost(1f))
     val status = budgetStatusFor(fraction)
-    val track = MaterialTheme.colorScheme.surfaceVariant
-    val progress = when (status) {
-        BudgetStatus.HEALTHY -> MaterialTheme.colorScheme.primary
-        BudgetStatus.APPROACHING -> if (MaterialTheme.colorScheme.brightness()) PesaWarningDark else PesaWarning
-        BudgetStatus.EXCEEDED -> MaterialTheme.colorScheme.error
-    }
+    // Gold while healthy or approaching (amber-adjacent, calm); restrained
+    // red only once blown. The percent line names the state in words.
     Column(modifier.fillMaxWidth()) {
-        LinearProgressIndicator(
-            progress = { bar },
-            modifier = Modifier.fillMaxWidth().height(8.dp).clip(CircleShape),
-            color = progress,
-            trackColor = track
+        PpProgress(
+            fraction = fraction,
+            kind = if (status == BudgetStatus.EXCEEDED) PpProgressKind.ERROR else PpProgressKind.GOLD
         )
         if (showPercent) {
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(ppSpacing.xs))
             val label = when (status) {
                 BudgetStatus.HEALTHY -> "${(fraction * 100).toInt()}% used"
                 BudgetStatus.APPROACHING -> "${(fraction * 100).toInt()}% used — approaching limit"
                 BudgetStatus.EXCEEDED -> "${(fraction * 100).toInt()}% used — over budget"
             }
-            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                label, style = ppTypography.labelMedium,
+                color = if (status == BudgetStatus.APPROACHING) ppColors.warning else ppColors.textTertiary
+            )
         }
     }
 }
 
-// Hero financial card: deep blue gradient, single gold accent line, calm hierarchy.
-// One hero figure dominates; up to three supporting stats ride below.
+// Hero financial card: token navy gradient, single gold accent line, calm
+// hierarchy. One hero figure dominates (36sp tabular); supports ride below.
 @Composable
 fun HeroFinanceCard(
     greeting: String,
@@ -340,24 +326,20 @@ fun HeroFinanceCard(
     onHideToggle: (() -> Unit)? = null,
     hideLabel: String? = null
 ) {
-    val isDark = MaterialTheme.colorScheme.brightness()
-    val gradient = if (isDark) {
-        Brush.linearGradient(listOf(NavySurface, DeepNavy, PrimaryBlue))
-    } else {
-        Brush.linearGradient(listOf(PrimaryBlue, RoyalBlue, KeyholeBlue))
-    }
+    val gradient = Brush.linearGradient(listOf(ppColors.surface, ppColors.surfaceElevated))
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = PesaRadius.xl,
+        shape = ppShapes.hero,
         colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+        border = androidx.compose.foundation.BorderStroke(1.dp, ppColors.border),
         elevation = CardDefaults.cardElevation(defaultElevation = PesaElevation.hero)
     ) {
-        Box(Modifier.background(gradient).fillMaxWidth().padding(PesaSpacing.xl)) {
-            Column(verticalArrangement = Arrangement.spacedBy(PesaSpacing.sm)) {
+        Box(Modifier.background(gradient).fillMaxWidth().padding(ppSpacing.xxl)) {
+            Column(verticalArrangement = Arrangement.spacedBy(PesaSpacing.md)) {
                 Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text(greeting, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.White)
-                        Text(dateLine, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.75f))
+                        Text(greeting, style = ppTypography.h3, color = ppColors.textPrimary)
+                        Text(dateLine, style = ppTypography.bodySmall, color = ppColors.textTertiary)
                     }
                     if (onHideToggle != null && hideLabel != null) {
                         AssistChip(
@@ -371,16 +353,15 @@ fun HeroFinanceCard(
                     }
                 }
                 // Restrained gold accent line — brand moment, not decoration everywhere.
-                Box(Modifier.width(48.dp).height(3.dp).clip(CircleShape).background(PrimaryGold))
-                Text(availableLabel, style = MaterialTheme.typography.labelLarge, color = Color.White.copy(alpha = 0.75f))
+                Box(Modifier.width(48.dp).height(3.dp).clip(CircleShape).background(ppColors.gold))
+                Text(availableLabel, style = ppTypography.labelMedium, color = ppColors.goldLight)
                 Text(
                     availableValue,
-                    style = MaterialTheme.typography.displaySmall,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
+                    style = ppTypography.financialHero,
+                    color = ppColors.textPrimary,
                     maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
-                Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(PesaSpacing.md)) {
+                Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(PesaSpacing.lg)) {
                     stats.take(3).forEach { (label, value) -> HeroStat(label, value, Modifier.weight(1f)) }
                 }
             }
@@ -391,8 +372,8 @@ fun HeroFinanceCard(
 @Composable
 private fun HeroStat(label: String, value: String, modifier: Modifier = Modifier) {
     Column(modifier) {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.7f))
-        Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(label, style = ppTypography.labelMedium, color = ppColors.textTertiary)
+        Text(value, style = ppTypography.bodyLarge, fontWeight = FontWeight.SemiBold, color = ppColors.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

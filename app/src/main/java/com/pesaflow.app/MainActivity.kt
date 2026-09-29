@@ -10,6 +10,7 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.core.view.WindowCompat
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.rememberScrollState
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.CheckCircle
@@ -27,14 +29,18 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -45,8 +51,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -57,7 +61,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -300,38 +306,20 @@ private fun PesaFlowAppNav(viewModel: FinanceViewModel) {
             }
         },
         bottomBar = {
-            NavigationBar {
-                NavigationBarItem(
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
-                    icon = { Icon(Icons.Filled.Home, contentDescription = "Home") },
-                    label = { Text("Home") }
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 1,
-                    onClick = { selectedTab = 1 },
-                    icon = { Icon(Icons.Filled.Menu, contentDescription = "Transactions") },
-                    label = { Text("Transactions") }
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 2,
-                    onClick = { selectedTab = 2 },
-                    icon = { Icon(Icons.Filled.ShoppingCart, contentDescription = "Budgets") },
-                    label = { Text("Budgets") }
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 3,
-                    onClick = { selectedTab = 3 },
-                    icon = { Icon(Icons.Filled.Info, contentDescription = "Insights") },
-                    label = { Text("Insights") }
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 4,
-                    onClick = { selectedTab = 4; moreSection = null },
-                    icon = { Icon(Icons.Filled.MoreVert, contentDescription = "More") },
-                    label = { Text("More") }
-                )
-            }
+            com.pesaflow.app.ui.theme.PpBottomBar(
+                items = listOf(
+                    com.pesaflow.app.ui.theme.PpNavItem("Home", Icons.Filled.Home),
+                    com.pesaflow.app.ui.theme.PpNavItem("Transactions", Icons.AutoMirrored.Filled.ReceiptLong),
+                    com.pesaflow.app.ui.theme.PpNavItem("Budgets", Icons.Filled.AccountBalanceWallet),
+                    com.pesaflow.app.ui.theme.PpNavItem("Insights", Icons.Filled.Lightbulb),
+                    com.pesaflow.app.ui.theme.PpNavItem("More", Icons.Filled.MoreVert)
+                ),
+                selectedIndex = selectedTab,
+                onSelect = { i ->
+                    selectedTab = i
+                    if (i == 4) moreSection = null
+                }
+            )
         }
     ) { innerPadding ->
         Box(modifier = Modifier.padding(innerPadding)) {
@@ -468,8 +456,8 @@ private fun MoreScreen(onSelect: (String) -> Unit) {
         modifier = Modifier.fillMaxSize().padding(20.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("More Features", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Text("Everything else, one tap away", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("More features", style = com.pesaflow.app.ui.theme.ppTypography.h1, color = com.pesaflow.app.ui.theme.ppColors.textPrimary)
+        Text("Everything else, one tap away", style = com.pesaflow.app.ui.theme.ppTypography.bodyMedium, color = com.pesaflow.app.ui.theme.ppColors.textTertiary)
         MoreRow(icon = Icons.Filled.Info, title = "Insights", subtitle = "Charts, trends and advice") { onSelect(NavRoutes.INSIGHTS) }
         MoreRow(icon = Icons.Filled.DateRange, title = "Semester", subtitle = "Semester plan, runway and fees") { onSelect(NavRoutes.SEMESTER) }
         MoreRow(icon = Icons.Filled.Menu, title = "Reports", subtitle = "Daily to annual summaries") { onSelect(NavRoutes.REPORTS) }
@@ -501,13 +489,41 @@ private fun MoreScreen(onSelect: (String) -> Unit) {
 private fun MoreRow(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        shape = com.pesaflow.app.ui.theme.ppShapes.cardCompact,
+        colors = CardDefaults.cardColors(containerColor = com.pesaflow.app.ui.theme.ppColors.surface),
+        border = androidx.compose.foundation.BorderStroke(1.dp, com.pesaflow.app.ui.theme.ppColors.border)
     ) {
         ListItem(
-            headlineContent = { Text(title, fontWeight = FontWeight.Bold) },
-            supportingContent = { Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant) },
-            leadingContent = { Icon(icon, contentDescription = title, tint = MaterialTheme.colorScheme.primary) },
+            headlineContent = {
+                Text(
+                    title,
+                    style = com.pesaflow.app.ui.theme.ppTypography.labelLarge,
+                    color = com.pesaflow.app.ui.theme.ppColors.textPrimary
+                )
+            },
+            supportingContent = {
+                Text(
+                    subtitle,
+                    style = com.pesaflow.app.ui.theme.ppTypography.bodySmall,
+                    color = com.pesaflow.app.ui.theme.ppColors.textTertiary
+                )
+            },
+            leadingContent = {
+                androidx.compose.foundation.layout.Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(androidx.compose.foundation.shape.CircleShape)
+                        .background(com.pesaflow.app.ui.theme.ppColors.surfaceElevated),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        icon,
+                        contentDescription = title,
+                        tint = com.pesaflow.app.ui.theme.ppColors.brightBlue,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            },
             colors = ListItemDefaults.colors(containerColor = Color.Transparent)
         )
     }

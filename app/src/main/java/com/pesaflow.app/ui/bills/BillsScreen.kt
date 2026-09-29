@@ -449,11 +449,19 @@ fun BillsScreen(viewModel: FinanceViewModel) {
 @Composable
 fun BillCard(bill: Bill, onPaid: () -> Unit, onDelete: () -> Unit, onEdit: () -> Unit = {}) {
     var isExpanded by remember { mutableStateOf(false) }
+    val nowMs = System.currentTimeMillis()
+    val dayMs = 24L * 60 * 60 * 1000
+    val overdueDays = if (bill.status != "PAID" && bill.dueDate < nowMs) ((nowMs - bill.dueDate) / dayMs).toInt() else -1
+    val dueSoon = bill.status != "PAID" && overdueDays < 0 && bill.dueDate - nowMs < 3 * dayMs
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = com.pesaflow.app.ui.theme.ppShapes.card,
+        colors = CardDefaults.cardColors(containerColor = com.pesaflow.app.ui.theme.ppColors.surface),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (overdueDays >= 0) com.pesaflow.app.ui.theme.ppColors.error else com.pesaflow.app.ui.theme.ppColors.border
+        ),
         onClick = { isExpanded = !isExpanded }
     ) {
         Column(
@@ -467,29 +475,39 @@ fun BillCard(bill: Bill, onPaid: () -> Unit, onDelete: () -> Unit, onEdit: () ->
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         bill.name,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        style = com.pesaflow.app.ui.theme.ppTypography.labelLarge,
+                        color = com.pesaflow.app.ui.theme.ppColors.textPrimary
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         "KSh ${bill.amount.toInt()}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (bill.amount > 1000) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                        style = com.pesaflow.app.ui.theme.ppTypography.financialSmall,
+                        color = if (overdueDays >= 0) com.pesaflow.app.ui.theme.ppColors.error
+                        else com.pesaflow.app.ui.theme.ppColors.textPrimary
                     )
                 }
 
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
-                        "Due: ${formatDate(bill.dueDate)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        when {
+                            bill.status == "PAID" -> "Due: ${formatDate(bill.dueDate)}"
+                            overdueDays >= 0 -> "OVERDUE · ${overdueDays}d"
+                            dueSoon -> "Due in ${((bill.dueDate - nowMs) / dayMs).toInt()}d"
+                            else -> "Due: ${formatDate(bill.dueDate)}"
+                        },
+                        style = com.pesaflow.app.ui.theme.ppTypography.bodySmall,
+                        color = when {
+                            bill.status == "PAID" -> com.pesaflow.app.ui.theme.ppColors.textTertiary
+                            overdueDays >= 0 -> com.pesaflow.app.ui.theme.ppColors.error
+                            dueSoon -> com.pesaflow.app.ui.theme.ppColors.warning
+                            else -> com.pesaflow.app.ui.theme.ppColors.textTertiary
+                        }
                     )
                     if (bill.status == "PAID") {
-                        Text("PAID ✓", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                        Text("PAID ✓", style = com.pesaflow.app.ui.theme.ppTypography.bodySmall, color = com.pesaflow.app.ui.theme.ppColors.success)
                     } else {
                         TextButton(onClick = onPaid) {
-                            Text("Mark Paid", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                            Text("Mark Paid", style = com.pesaflow.app.ui.theme.ppTypography.labelMedium, color = com.pesaflow.app.ui.theme.ppColors.gold)
                         }
                     }
                 }
@@ -519,10 +537,10 @@ fun BillCard(bill: Bill, onPaid: () -> Unit, onDelete: () -> Unit, onEdit: () ->
                 }
                 Row(modifier = Modifier.fillMaxWidth().padding(0.dp, 0.dp, 8.dp, 8.dp), horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = onEdit) {
-                        Text("Edit", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                        Text("Edit", style = com.pesaflow.app.ui.theme.ppTypography.labelMedium, color = com.pesaflow.app.ui.theme.ppColors.brightBlue)
                     }
                     TextButton(onClick = onDelete) {
-                        Text("Delete", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        Text("Delete", style = com.pesaflow.app.ui.theme.ppTypography.labelMedium, color = com.pesaflow.app.ui.theme.ppColors.error)
                     }
                 }
             }
@@ -537,9 +555,9 @@ fun DetailRowItem(
     value: String
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(icon, contentDescription = label, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+        Icon(icon, contentDescription = label, tint = com.pesaflow.app.ui.theme.ppColors.textTertiary, modifier = Modifier.size(20.dp))
+        Text(label, style = com.pesaflow.app.ui.theme.ppTypography.labelSmall, color = com.pesaflow.app.ui.theme.ppColors.textTertiary)
+        Text(value, style = com.pesaflow.app.ui.theme.ppTypography.bodyMedium, color = com.pesaflow.app.ui.theme.ppColors.textPrimary)
     }
 }
 
