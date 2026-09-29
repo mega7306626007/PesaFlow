@@ -143,6 +143,13 @@ class FinanceRepository(private val database: AppDatabase) {
 
     suspend fun insertTransaction(transaction: Transaction) {
         database.transactionDao().insertTransaction(transaction)
+        // Demo rows retire the moment real money lands: samples inflate the
+        // hero balance while every statistic excludes them — that split is
+        // the "weird values" report. First real row purges them; they are
+        // labeled samples, never user data, so no undo is owed.
+        if (!transaction.isSample) {
+            database.transactionDao().deleteSamples()
+        }
     }
 
 

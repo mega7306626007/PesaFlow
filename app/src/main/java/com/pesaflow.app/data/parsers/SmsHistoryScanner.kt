@@ -62,8 +62,9 @@ suspend fun scanRecentSms(
     var capped: Boolean
     // Newest-first page order: the first balance tail found is the latest wallet figure.
     try {
-        // MPESA/Safaricom first, then telcos, then any KES-denominated body
-        // (bank KES texts come from a dozen sender IDs — the body is the net).
+        // MPESA/Safaricom first, then telcos, banks (sender IDs vary — the
+        // KES body is the net), HELB, SACCOs. Personal senders are skipped
+        // in the loop below: a friend's money talk is never a candidate.
         var offset = 0
         var pageRows = 0
         while (offset < maxRows && !isCancelled()) {
@@ -71,18 +72,21 @@ suspend fun scanRecentSms(
             context.contentResolver.query(
                 Telephony.Sms.Inbox.CONTENT_URI,
                 arrayOf("_id", "address", "body", "date"),
-                "(address LIKE ? OR address LIKE ? OR address LIKE ? OR address LIKE ? OR address LIKE ? OR body LIKE ? OR body LIKE ?) AND date >= ?",
-                arrayOf("%MPESA%", "%Safaricom%", "%AIRTEL%", "%TELKOM%", "%EQUITEL%", "%M-PESA%", "%KES%", since.toString()),
+                "(address LIKE ? OR address LIKE ? OR address LIKE ? OR address LIKE ? OR address LIKE ? OR address LIKE ? OR address LIKE ? OR body LIKE ? OR body LIKE ?) AND date >= ?",
+                arrayOf("%MPESA%", "%Safaricom%", "%AIRTEL%", "%TELKOM%", "%EQUITEL%", "%HELB%", "%SACCO%", "%M-PESA%", "%KES%", since.toString()),
                 "date DESC LIMIT $pageSize OFFSET $offset"
             )?.use { c ->
                 val bodyIdx = c.getColumnIndexOrThrow("body")
                 val addrIdx = c.getColumnIndexOrThrow("address")
                 val dateIdx = c.getColumnIndexOrThrow("date")
                 while (c.moveToNext()) {
-                    found++
-                    pageRows++
                     val body = c.getString(bodyIdx) ?: ""
                     val sender = try { c.getString(addrIdx) ?: "" } catch (e: Exception) { "" }
+                    // Personal senders skipped silently: not candidates, not
+                    // "found", not "unreadable" — they never enter the funnel.
+                    if (sender.isNotBlank() && !MpesaParser.isOfficialSender(sender)) continue
+                    found++
+                    pageRows++
                     val smsDate = try { c.getLong(dateIdx) } catch (e: Exception) { 0L }
                     // Sender powers bank-name patterns — dropping it blinds them.
                     // Harvest the wallet balance even from unparseable bodies.

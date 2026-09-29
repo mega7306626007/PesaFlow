@@ -42,7 +42,9 @@ fun SmartInsightsCard(
     val appCtx = LocalContext.current
     val weekPlan = WeekPlan.load(appCtx)
     val expectedIncome = remember(incomeSources) { incomeSources.sumOf { com.pesaflow.app.data.income.IncomeSourceStore.budgetedMonthly(it) } }
-    val monthFees = remember { com.pesaflow.app.data.parsers.readMonthFees(appCtx) }
+    // Keyed on transactions: fee detections land alongside ledger writes, so
+    // a refresh that adds spending also refreshes the fee bleed line.
+    val monthFees = remember(transactions) { com.pesaflow.app.data.parsers.readMonthFees(appCtx) }
     val hustleSrcs = remember(incomeSources) { incomeSources.filter { it.kind == "HUSTLE" } }
     val hustleExp = remember(hustleSrcs) { hustleSrcs.sumOf { com.pesaflow.app.data.income.IncomeSourceStore.budgetedMonthly(it) } }
     val hustleGot = remember(transactions, hustleSrcs) {

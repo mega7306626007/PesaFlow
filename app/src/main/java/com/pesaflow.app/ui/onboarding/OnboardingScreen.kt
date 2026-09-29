@@ -908,6 +908,13 @@ fun OnboardingScreen(viewModel: FinanceViewModel, onDone: () -> Unit) {
                                 pocket.toDoubleOrNull() ?: 0.0,
                                 upkeep
                             )
+                            // First-sync: coded + sure scans confirm themselves
+                            // now, so Home opens on real data, not an empty
+                            // ledger. Codeless/unsure rows stay queued; the
+                            // approval carries an undo slot like any bulk tap.
+                            viewModel.autoApproveOnboardingSync(
+                                appContext.getSharedPreferences("pesaflow_prefs", android.content.Context.MODE_PRIVATE)
+                            )
                             // Persona setup code: shared rentals read as rentals (they pay
                             // rent), solo places too — only Parents/Hostel differ.
                             val homeCode = when (homeKind) {

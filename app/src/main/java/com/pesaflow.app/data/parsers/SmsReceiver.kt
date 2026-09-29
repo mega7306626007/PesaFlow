@@ -29,10 +29,10 @@ class SmsReceiver : BroadcastReceiver() {
                 // Wallet balance rides on raw bodies — harvest even when parsing fails.
                 parseBalance(body)?.let { saveMpesaBalance(context, it) }
 
-                // Explicit validation targeting transactional communication headers.
-                // MPESA = money moves; Safaricom = bundles/airtime notices without a code;
-                // banks + telcos ride on sender names (bodies often omit them).
-                if (MpesaParser.isTransactionalSender(sender) || body.contains("Confirmed")) {
+                // Sender authority: only official money senders enter the funnel.
+                // A personal "Confirmed nitakutumia" text is never money —
+                // the old body-contains-Confirmed bypass is gone on purpose.
+                if (MpesaParser.isOfficialSender(sender)) {
                     // SMSC timestamp rides along: a delayed delivery still
                     // files under the carrier's stamp, never the arrival time.
                     val pendingTx = MpesaParser.parseMessage(body, sender, msg.timestampMillis)

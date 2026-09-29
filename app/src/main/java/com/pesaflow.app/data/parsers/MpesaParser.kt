@@ -179,12 +179,23 @@ object MpesaParser {
     private val BANK_SENDERS = listOf("KCB", "EQUITY", "CO-OP", "COOP", "ABSA", "STANBIC", "FAMILY", "DTB", "NCBA", "I&M", "STANCHART")
 
     // Senders worth opening even without a "Confirmed" header.
-    fun isTransactionalSender(sender: String): Boolean {
+    // Official money senders ONLY: telcos, banks, HELB, SACCOs. Anything
+    // else (phone numbers, contact names) is a person — a friend's
+    // "nimetuma 500" or "Confirmed nitakutumia" is never money, no matter
+    // how money-shaped the body looks.
+    private val OFFICIAL_SENDER_KEYWORDS = listOf(
+        "mpesa", "safaricom", "airtel", "telkom", "equitel", "t-kash",
+        "kcb", "equity", "co-op", "coop", "absa", "stanbic", "family",
+        "dtb", "ncba", "i&m", "stanchart",
+        "helb", "sacco", "stima", "unaitas", "mwalimu", "harambee"
+    )
+
+    fun isOfficialSender(sender: String): Boolean {
         val s = sender.lowercase()
-        return s.contains("mpesa") || s.contains("safaricom") || s.contains("airtel") ||
-            s.contains("telkom") || s.contains("equitel") ||
-            BANK_SENDERS.any { s.contains(it.lowercase().replace("-", "")) || s.contains(it.lowercase()) }
+        return OFFICIAL_SENDER_KEYWORDS.any { s.contains(it) }
     }
+
+    fun isTransactionalSender(sender: String): Boolean = isOfficialSender(sender)
 
     fun bankNameOfSender(sender: String): String? {
         val s = sender.uppercase()
@@ -235,6 +246,11 @@ object MpesaParser {
             .replace(Regex("(?i)\\bkes\\b"), "KSh")
             .replace(Regex("(?i)\\bkshs\\b"), "KSh")
         val senderBank = bankNameOfSender(sender)
+
+        // Sender authority gate: a non-blank unofficial sender (phone number,
+        // contact name) is a person — never money, skip before shapes run.
+        // Blank sender = manual/test/share flows, human-gated downstream.
+        if (sender.isNotBlank() && !isOfficialSender(sender)) return null
 
         // Shadows the member below: every branch below calls THIS, gaining
         // harvested-date arbitration for free. Branch-captured `on…at…`

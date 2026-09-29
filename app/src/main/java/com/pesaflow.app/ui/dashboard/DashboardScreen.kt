@@ -586,7 +586,7 @@ fun DashboardScreen(
                     val dashPrefs = LocalContext.current.getSharedPreferences("pesaflow_prefs", android.content.Context.MODE_PRIVATE)
                     val sureRows = remember(pendingTransactions) {
                         pendingTransactions.filter {
-                            com.pesaflow.app.data.ledger.ConfidenceMemory.effective(dashPrefs, it.merchant, it.confidenceScore) >= 0.85f
+                            com.pesaflow.app.data.ledger.ConfidenceMemory.effective(dashPrefs, it.merchant, it.confidenceScore) >= com.pesaflow.app.data.parsers.PendingPolicy.SURE_CONFIDENCE
                         }
                     }
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {

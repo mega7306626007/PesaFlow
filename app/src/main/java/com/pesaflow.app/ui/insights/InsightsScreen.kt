@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -12,11 +14,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.pesaflow.app.R
 import com.pesaflow.app.data.models.TransactionType
 import com.pesaflow.app.ui.analytics.HistoricalTrendLineChart
 import com.pesaflow.app.ui.analytics.MetricDistributionDonutChart
+import com.pesaflow.app.ui.budgets.parsePersona
 import com.pesaflow.app.ui.dashboard.SmartInsightsCard
 import com.pesaflow.app.ui.theme.AtmoWorkspace
 import com.pesaflow.app.ui.theme.AtmosphereBand
@@ -76,6 +80,11 @@ fun InsightsScreen(viewModel: FinanceViewModel) {
                             value = nlpInputText,
                             onValueChange = { viewModel.nlpInputText.value = it },
                             placeholder = { Text("e.g. nimebuy lunch ya 250 mpesa") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(onDone = {
+                                if (nlpInputText.isNotBlank()) viewModel.parseAndProcessNlp()
+                            }),
                             modifier = Modifier.fillMaxWidth()
                         )
                         Spacer(modifier = Modifier.height(8.dp))
@@ -185,7 +194,10 @@ fun InsightsScreen(viewModel: FinanceViewModel) {
                     bills = bills,
                     debts = debts,
                     goals = savingsGoals,
-                    incomeSources = viewModel.incomeSources.collectAsState().value
+                    incomeSources = viewModel.incomeSources.collectAsState().value,
+                    // Real persona, not the HOSTEL_COOK default: far commuters
+                    // must never hear "walk", non-cooks never hear "cook".
+                    persona = parsePersona(viewModel.getOnboardingAnswers())
                 )
             }
             }

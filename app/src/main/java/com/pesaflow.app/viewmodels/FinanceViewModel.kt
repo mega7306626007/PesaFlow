@@ -355,6 +355,24 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     }
 
 
+    // Onboarding first-sync: coded + sure rows confirm themselves the moment
+    // tracking starts, so insights read real data from the word go. Same
+    // policy object as the dashboard bulk bar; same undo slot; codeless or
+    // unsure rows stay queued for human eyes.
+    fun autoApproveOnboardingSync(prefs: android.content.SharedPreferences, onDone: (Int) -> Unit = {}) {
+        viewModelScope.launch {
+            val rows = repository.pendingOnce().filter {
+                com.pesaflow.app.data.parsers.PendingPolicy.isAutoApprovable(
+                    it.sourceTransactionId,
+                    com.pesaflow.app.data.ledger.ConfidenceMemory.effective(prefs, it.merchant, it.confidenceScore)
+                )
+            }
+            if (rows.isNotEmpty()) approveAllPending(rows)
+            onDone(rows.size)
+        }
+    }
+
+
     // User-initiated sweep: pending rows duplicated by double-scans collapse
     // to the earliest — same code, or same amount+merchant+day. Everything
     // else untouched. Returns removals for the toast.
