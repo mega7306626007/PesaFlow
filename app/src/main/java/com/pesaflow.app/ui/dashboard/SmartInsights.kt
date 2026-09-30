@@ -65,8 +65,13 @@ fun SmartInsightsCard(
         }
     }
     val held = remember(transactions) { com.pesaflow.app.data.money.ledgerBalance(transactions) }
-    val insights = remember(transactions, budgets, lang, name, bills, debts, goals, weekPlan, persona, expectedIncome, monthFees, hustleExp, hustleGot, held) {
-        buildInsights(transactions, budgets, lang, name, bills, debts, goals, weekPlan, persona, expectedIncome, monthFees, hustleExp, hustleGot, held)
+    val watched = remember(transactions) {
+        com.pesaflow.app.data.ledger.Watchlist.read(
+            appCtx.getSharedPreferences("pesaflow_prefs", android.content.Context.MODE_PRIVATE)
+        )
+    }
+    val insights = remember(transactions, budgets, lang, name, bills, debts, goals, weekPlan, persona, expectedIncome, monthFees, hustleExp, hustleGot, held, watched) {
+        buildInsights(transactions, budgets, lang, name, bills, debts, goals, weekPlan, persona, expectedIncome, monthFees, hustleExp, hustleGot, held, watched)
     }
     // Dismissal learning: muted tip families stay muted (prefs-backed).
     // "Show muted" brings them back — nothing is ever lost.

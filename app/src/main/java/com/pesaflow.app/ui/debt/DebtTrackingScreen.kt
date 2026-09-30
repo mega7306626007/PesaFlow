@@ -127,6 +127,50 @@ fun DebtTrackingScreen(viewModel: FinanceViewModel) {
 
                 val toMeTotal = owedToMe.sumOf { it.amount }
                 val iOweTotal = iOwe.sumOf { it.amount }
+                // Payoff planner: earliest-due first, one monthly number spills
+                // across every debt you owe. Pure math, live on your data.
+                if (iOwe.isNotEmpty()) {
+                    var payoffInput by remember(iOweTotal) {
+                        mutableStateOf((iOweTotal / 3).toInt().coerceAtLeast(100).toString())
+                    }
+                    val payoffMonthly = payoffInput.toDoubleOrNull()?.takeIf { it > 0 }
+                    val plan = remember(iOwe, payoffMonthly) {
+                        payoffMonthly?.let { com.pesaflow.app.data.finance.planPayoff(iOwe, it) }
+                    }
+                    SkinCard(skin = SkinDebt) {
+                        Text(
+                            "Payoff plan 🧹",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(PesaSpacing.xs))
+                        OutlinedTextField(
+                            value = payoffInput,
+                            onValueChange = { v -> if (v.matches(Regex("^[0-9.,]*$"))) payoffInput = v },
+                            label = { Text("Monthly payoff (KSh)") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        if (plan != null && plan.steps.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(PesaSpacing.xs))
+                            plan.steps.forEachIndexed { i, s ->
+                                Text(
+                                    "${i + 1}. ${s.person} — KSh ${s.amount.toInt()} · clears month ${s.clearMonth}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(PesaSpacing.xs))
+                            Text(
+                                "Debt-free in ${plan.totalMonths} month(s) at KSh ${payoffMonthly!!.toInt()}/mo.",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
                 Text(
                     "Owed to you KSh ${toMeTotal.toInt()} · You owe KSh ${iOweTotal.toInt()}",
                     style = MaterialTheme.typography.titleSmall,

@@ -60,6 +60,10 @@ fun BudgetsScreen(viewModel: FinanceViewModel) {
     }
     var autoDaily by remember { mutableStateOf(true) }
     var personaSel by remember { mutableStateOf(parsePersona(viewModel.getOnboardingAnswers())) }
+    // Watchlist: pinned envelopes report first in Smart Insights.
+    val watchPrefs = androidx.compose.ui.platform.LocalContext.current
+        .getSharedPreferences("pesaflow_prefs", android.content.Context.MODE_PRIVATE)
+    var watched by remember { mutableStateOf(com.pesaflow.app.data.ledger.Watchlist.read(watchPrefs)) }
     val haptics = LocalHapticFeedback.current
     var showAddDialog by remember { mutableStateOf(false) }
     var showPlanDialog by remember { mutableStateOf(false) }
@@ -449,16 +453,26 @@ fun BudgetsScreen(viewModel: FinanceViewModel) {
                     val cPct = (cSpent / budget.limitAmount * 100).coerceIn(0.0, 100.0)
                     com.pesaflow.app.ui.theme.PpCard(kind = com.pesaflow.app.ui.theme.PpCardKind.STANDARD) {
                         Column(verticalArrangement = Arrangement.spacedBy(com.pesaflow.app.ui.theme.ppSpacing.sm)) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    budget.category,
-                                    style = com.pesaflow.app.ui.theme.ppTypography.labelLarge,
-                                    color = com.pesaflow.app.ui.theme.ppColors.textPrimary
-                                )
-                                TextButton(onClick = { viewModel.deleteBudget(budget.id) }) {
-                                    Text("Remove", style = com.pesaflow.app.ui.theme.ppTypography.labelMedium, color = com.pesaflow.app.ui.theme.ppColors.error)
-                                }
-                            }
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            "${com.pesaflow.app.ui.theme.categoryEmoji(budget.category)} ${budget.category}",
+                                            style = com.pesaflow.app.ui.theme.ppTypography.labelLarge,
+                                            color = com.pesaflow.app.ui.theme.ppColors.textPrimary
+                                        )
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            TextButton(onClick = {
+                                                watched = com.pesaflow.app.data.ledger.Watchlist.toggle(watchPrefs, budget.category)
+                                            }) {
+                                                Text(
+                                                    if (budget.category.lowercase() in watched) "★" else "☆",
+                                                    color = com.pesaflow.app.ui.theme.ppColors.gold
+                                                )
+                                            }
+                                            TextButton(onClick = { viewModel.deleteBudget(budget.id) }) {
+                                                Text("Remove", style = com.pesaflow.app.ui.theme.ppTypography.labelMedium, color = com.pesaflow.app.ui.theme.ppColors.error)
+                                            }
+                                        }
+                                    }
                             com.pesaflow.app.ui.theme.PpProgress(
                                 fraction = (cSpent / budget.limitAmount).toFloat(),
                                 kind = if (cSpent >= budget.limitAmount) com.pesaflow.app.ui.theme.PpProgressKind.ERROR else com.pesaflow.app.ui.theme.PpProgressKind.GOLD

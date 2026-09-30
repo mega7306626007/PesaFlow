@@ -387,7 +387,15 @@ private fun PesaFlowAppNav(viewModel: FinanceViewModel) {
                         transactions = transactions, budgets = budgets, goals = goals,
                         bills = bills, debts = debts, profile = profile
                     )
-                    NavRoutes.RECURRING -> RecurringScreen(transactions = transactions)
+                    NavRoutes.RECURRING -> RecurringScreen(
+                        transactions = transactions,
+                        onMakeBill = { p ->
+                            viewModel.addBill(
+                                p.merchant, p.amount, p.nextExpectedDate, p.category,
+                                com.pesaflow.app.data.analytics.billFrequencyFor(p.medianIntervalDays)
+                            )
+                        }
+                    )
                     NavRoutes.GOALS -> GoalsScreen(goals = goals, transactions = transactions)
                     NavRoutes.CONTACTS -> {
                         val prefs = context.getSharedPreferences("pesaflow_prefs", android.content.Context.MODE_PRIVATE)

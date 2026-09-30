@@ -59,6 +59,21 @@ class SmartInsightsEngineTest {
     }
 
     @Test
+    fun `watched categories report first`() {
+        val txs = listOf(
+            txAt(800.0, TransactionType.EXPENSE, "Food", monthTs(0, 5)),
+            txAt(200.0, TransactionType.EXPENSE, "Transport", monthTs(0, 6))
+        )
+        val watched = buildInsights(
+            txs, emptyList(), AppLanguage.ENGLISH, "", emptyList(), emptyList(), emptyList(),
+            watched = setOf("food")
+        )
+        assertTrue(watched.any { it.contains("Watching food") && it.contains("KSh 800") })
+        val unwatched = buildInsights(txs, emptyList(), AppLanguage.ENGLISH, "", emptyList(), emptyList(), emptyList())
+        assertTrue(unwatched.none { it.contains("Watching") })
+    }
+
+    @Test
     fun `other dominance nudges to review`() {
         val txs = listOf(
             txAt(4000.0, TransactionType.EXPENSE, "Other", monthTs(0, 5)),

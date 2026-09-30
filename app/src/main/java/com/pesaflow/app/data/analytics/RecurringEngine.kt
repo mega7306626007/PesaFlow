@@ -105,6 +105,14 @@ fun buildRecurringPreview(
     )
 }
 
+/** Bill frequency for a detected pattern: monthly rhythms bill monthly,
+ *  weekly rhythms weekly, everything else a one-off reminder. */
+fun billFrequencyFor(medianIntervalDays: Int): String = when (medianIntervalDays) {
+    in 25..35 -> "MONTHLY"
+    in 6..8 -> "WEEKLY"
+    else -> "ONE_TIME"
+}
+
 /** Check if a new transaction matches an existing recurring pattern. */
 fun matchesRecurring(
     tx: Transaction,

@@ -70,7 +70,9 @@ hustleExpected: Double = 0.0,
 hustleLanded: Double = 0.0,
 // Money actually held (ledger balance): pace + open bills are judged
 // against it, naming the dry date when one exists.
-heldBalance: Double = 0.0
+heldBalance: Double = 0.0,
+// Pinned watchlist categories: report first, budget or not.
+watched: Set<String> = emptySet()
 ): List<String> {
     fun t(en: String, sh: String, sw: String, mix: String): String =
         when (lang) {
@@ -630,6 +632,22 @@ heldBalance: Double = 0.0
             }
             .sortedByDescending { it.second }.take(2)
             .forEach { (msg, _) -> out.add(t(msg, msg, msg, msg)) }
+    }
+    // Watched categories: pinned envelopes report first, budget or not.
+    if (watched.isNotEmpty()) {
+        val monthByCatLower = monthExp.groupBy { it.category.lowercase() }.mapValues { e -> e.value.sumOf { it.amount } }
+        watched.forEach { w ->
+            val spent = monthByCatLower[w.lowercase()] ?: 0.0
+            if (spent > 0) {
+                val limit = budgets.firstOrNull { it.category.equals(w, ignoreCase = true) }?.limitAmount
+                out.add(t(
+                    "Watching $w: KSh ${spent.toInt()}" + (if (limit != null && limit > 0) " of KSh ${limit.toInt()} budget. 👀" else " this month. 👀"),
+                    "Watching $w: KSh ${spent.toInt()}" + (if (limit != null && limit > 0) " of KSh ${limit.toInt()} budget. 👀" else " this month. 👀"),
+                    "Unafuatilia $w: KSh ${spent.toInt()}" + (if (limit != null && limit > 0) " kati ya KSh ${limit.toInt()}. 👀" else " mwezi huu. 👀"),
+                    "Watching $w: KSh ${spent.toInt()}" + (if (limit != null && limit > 0) " of KSh ${limit.toInt()} budget. 👀" else " this month. 👀")
+                ))
+            }
+        }
     }
     if (monthTotal > 0 && out.size == 1) {
         out.add(t(
