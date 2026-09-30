@@ -294,6 +294,13 @@ fun ReviewScreen(viewModel: FinanceViewModel) {
                                 TextButton(onClick = { confirmClearAll = true }) {
                                     Text("Clear all", color = MaterialTheme.colorScheme.error)
                                 }
+                                val stale = com.pesaflow.app.data.parsers.PendingPolicy.stalePendings(pendings, System.currentTimeMillis())
+                                if (stale.isNotEmpty()) {
+                                    TextButton(onClick = {
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        stale.forEach { viewModel.rejectPending(it) }
+                                    }) { Text("Clear ${stale.size} stale (14d+)") }
+                                }
                             }
                         }
                         if (confirmClearAll) {

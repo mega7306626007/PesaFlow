@@ -37,11 +37,33 @@ class ExportEngine(
         bills: List<Bill> = emptyList(),
         debts: List<Debt> = emptyList(),
         profile: UniversityProfile? = null
+    ): String = exportRange(transactions, budgets, goals, bills, debts, profile)
+
+    /**
+     * Range export: only transactions inside [startMs, endMs] (both
+     * Long.MIN/MAX for open sides) and, when [categories] is non-empty, only
+     * those categories. Budgets/goals/bills/debts always export whole —
+     * they are commitments, not history.
+     */
+    fun exportRange(
+        transactions: List<Transaction>,
+        budgets: List<Budget> = emptyList(),
+        goals: List<SavingsGoal> = emptyList(),
+        bills: List<Bill> = emptyList(),
+        debts: List<Debt> = emptyList(),
+        profile: UniversityProfile? = null,
+        startMs: Long = Long.MIN_VALUE,
+        endMs: Long = Long.MAX_VALUE,
+        categories: Set<String> = emptySet()
     ): String {
         val sb = StringBuilder()
         // Transactions — every field, compiler-checked.
         sb.append("type,date,merchant,category,subcategory,amount,payment_method,source,notes,tags,recurring,confirmed,created_at\n")
-        transactions.sortedBy { it.dateTimestamp }.forEach { tx ->
+        transactions
+            .filter { it.dateTimestamp in startMs..endMs }
+            .filter { categories.isEmpty() || it.category in categories }
+            .sortedBy { it.dateTimestamp }
+            .forEach { tx ->
             sb.append(quote(tx.type.name)).append(",")
             sb.append(quote(dateFmt.format(Date(tx.dateTimestamp)))).append(",")
             sb.append(quote(tx.merchant)).append(",")

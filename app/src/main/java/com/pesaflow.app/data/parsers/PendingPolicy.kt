@@ -16,15 +16,25 @@ object PendingPolicy {
         !sourceTransactionId.isNullOrBlank() && effectiveConfidence >= SURE_CONFIDENCE
 
     /**
-     * Approval-time category upgrade: an "Other" (or blank) verdict first
-     * consults learned memory, then keyword inference — so newly approved
-     * rows lift the ledger health grade instead of freezing it at D.
-     * Anything already categorized passes through untouched.
+     * Approval-time upgrade: an "Other" (or blank) verdict first
+     * consults learned memory, then keyword inference, before they hit
+     * the ledger — approved rows arrive categorized and the health grade
+     * can actually climb. Anything already categorized passes through.
      */
     fun upgradeOtherCategory(current: String, memorized: String?, inferred: String): String {
         if (current.isNotBlank() && !current.equals("Other", ignoreCase = true)) return current
         if (!memorized.isNullOrBlank()) return memorized
         if (inferred.isNotBlank() && !inferred.equals("Other", ignoreCase = true)) return inferred
         return current
+    }
+
+    /** Pendings older than [maxAgeDays] — stale queue rot, surfaced for cleanup. */
+    fun stalePendings(
+        pendings: List<com.pesaflow.app.data.models.PendingTransaction>,
+        now: Long,
+        maxAgeDays: Int = 14
+    ): List<com.pesaflow.app.data.models.PendingTransaction> {
+        val cutoff = now - maxAgeDays.toLong() * 24 * 60 * 60 * 1000
+        return pendings.filter { it.dateTimestamp < cutoff }
     }
 }
