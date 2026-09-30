@@ -7,6 +7,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
@@ -85,7 +86,12 @@ fun MetricDistributionDonutChart(
 
 @Composable
 fun BudgetRing(fraction: Float, modifier: Modifier = Modifier) {
-    val pct = (fraction.coerceIn(0f, 1f) * 100).toInt()
+    val animated: Float by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = fraction.coerceIn(0f, 1f),
+        animationSpec = androidx.compose.animation.core.tween(200),
+        label = "budgetRing"
+    )
+    val pct = (animated * 100).toInt()
     val trackColor = ppColors.border
     Box(modifier = modifier.size(96.dp), contentAlignment = Alignment.Center) {
         Canvas(modifier = Modifier.fillMaxSize()) {
@@ -99,7 +105,7 @@ fun BudgetRing(fraction: Float, modifier: Modifier = Modifier) {
             drawArc(
                 color = if (fraction >= 1f) ppColors.error else ppColors.gold,
                 startAngle = -90f,
-                sweepAngle = 360f * fraction.coerceIn(0f, 1f),
+                sweepAngle = 360f * animated,
                 useCenter = false,
                 style = Stroke(width = 12.dp.toPx(), cap = StrokeCap.Round)
             )

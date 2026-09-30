@@ -347,6 +347,23 @@ fun QuickAddDialog(
                         FilterChip(selected = inputAmount == q, onClick = { inputAmount = q }, label = { Text(q) })
                     }
                 }
+                // Your amounts: the last distinct sums you actually logged.
+                val recentAmounts = remember(recentTx, entryType) {
+                    recentTx.filter { it.type == entryType && !it.isSample }
+                        .map { it.amount }.distinct().take(5)
+                }
+                if (recentAmounts.isNotEmpty()) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(PesaSpacing.xs)) {
+                        recentAmounts.forEach { a ->
+                            val label = if (a % 1.0 == 0.0) a.toInt().toString() else a.toString()
+                            FilterChip(
+                                selected = inputAmount == label,
+                                onClick = { inputAmount = label },
+                                label = { Text("↻ $label") }
+                            )
+                        }
+                    }
+                }
                 run {
                     val dayStart = java.util.Calendar.getInstance().apply {
                         set(java.util.Calendar.HOUR_OF_DAY, 0)

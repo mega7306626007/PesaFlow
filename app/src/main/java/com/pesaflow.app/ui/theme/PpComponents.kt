@@ -1,5 +1,7 @@
 package com.pesaflow.app.ui.theme
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -27,6 +29,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -257,7 +260,12 @@ fun PpProgress(
     modifier: Modifier = Modifier,
     kind: PpProgressKind = PpProgressKind.GOLD
 ) {
-    val bar = fraction.coerceIn(0f, 1f)
+    // Bars ease to their value — progress that moves feels alive.
+    val animated by animateFloatAsState(
+        targetValue = fraction.coerceIn(0f, 1f),
+        animationSpec = tween(ppMotion.standard),
+        label = "ppProgress"
+    )
     val color = when (kind) {
         PpProgressKind.GOLD -> ppColors.gold
         PpProgressKind.SUCCESS -> ppColors.success
@@ -273,7 +281,7 @@ fun PpProgress(
     ) {
         Box(
             Modifier
-                .fillMaxWidth(bar)
+                .fillMaxWidth(animated)
                 .height(8.dp)
                 .clip(ppShapes.progress)
                 .background(color)

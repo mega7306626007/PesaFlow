@@ -889,6 +889,26 @@ fun SettingsScreen(viewModel: FinanceViewModel) {
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        val staleCount = com.pesaflow.app.data.parsers.PendingPolicy.stalePendings(
+                            viewModel.pendingTransactions.collectAsState().value,
+                            System.currentTimeMillis()
+                        ).size
+                        if (staleCount > 0) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(
+                                onClick = {
+                                    com.pesaflow.app.data.parsers.PendingPolicy.stalePendings(
+                                        viewModel.pendingTransactions.value,
+                                        System.currentTimeMillis()
+                                    ).forEach { viewModel.rejectPending(it) }
+                                    backupMsg = "Cleared $staleCount stale pending row(s). ✅"
+                                },
+                                shape = RoundedCornerShape(16.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurfaceVariant)
+                            ) {
+                                Text("Clear $staleCount stale pending", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
                         Spacer(modifier = Modifier.height(8.dp))
                         Button(
                             onClick = { showDeleteConfirm = true },

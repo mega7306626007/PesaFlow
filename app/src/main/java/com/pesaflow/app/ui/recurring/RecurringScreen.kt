@@ -30,6 +30,14 @@ fun RecurringScreen(
             Text("🔄 Recurring Transactions", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text("${preview.count} patterns · KSh ${preview.totalMonthlyCommitment.toInt()}/mo total", style = MaterialTheme.typography.bodySmall)
         }
+        if (preview.patterns.isEmpty() && preview.atRisk.isEmpty()) {
+            item {
+                com.pesaflow.app.ui.theme.PesaEmptyState(
+                    title = "No subscriptions found yet",
+                    explanation = "Pay for Netflix, chama or insurance twice and the rhythm shows up here — then one tap makes it a bill."
+                )
+            }
+        }
         items(preview.patterns) { pattern ->
             var billed by remember(pattern.merchant, pattern.amount) { mutableStateOf(false) }
             Card(
