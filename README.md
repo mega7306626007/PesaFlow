@@ -1,161 +1,138 @@
 # PesaFlow
 
-> **A personal finance and lifestyle assistant for students — built around KES, real student constraints, and adaptive intelligence.**
+> **Personal finance × student life × adaptive intelligence — built for real-world Kenyan student constraints.**
 
-PesaFlow is an Android application being developed in Kotlin to make personal finance easier to understand and act on. The project goes beyond a conventional expense tracker: it is designed to combine financial data, user context, budgeting logic, and on-device intelligence into a single student-focused experience.
+PesaFlow is an Android/Kotlin personal finance and lifestyle assistant designed to do more than record transactions. It connects financial state with the circumstances that give those numbers meaning.
 
-## Why PesaFlow?
+## Why it exists
 
-Most finance apps show numbers. PesaFlow is being designed to help a student understand **what those numbers mean for their actual life**.
+A student does not experience money as isolated numbers.
 
-That means accounting for context such as:
+Rent, food, transport, university costs, irregular income, funding, bills, debt, distance and personal habits all interact. PesaFlow is being built around that reality.
 
-- income and irregular cash flow
-- rent or living with family
-- HELB or other student funding
-- recurring bills and debts
-- food and university-related spending
-- transport and distance
-- budgets and safe-to-spend amounts
-- personal preferences and habits
-- changing circumstances over time
+The core idea is simple:
 
-The goal is not to overwhelm the user with financial figures. The system should translate financial state into clear, contextual guidance.
+**financial calculations should be precise; financial guidance should be contextual.**
 
-## Core Product
+## Core system
 
-### Finance
-- Expense and income tracking
-- Budget planning
+### 💰 Finance
+- Income and expense tracking
+- Budgets
 - Bills and recurring obligations
 - Debt tracking
-- Semester-aware financial planning
+- Cash-flow awareness
 - Safe-to-spend calculations
 - Financial summaries and insights
 
-### Student Context
-- University-oriented planning
-- Meal and food planning
-- Semester context
+### 🎓 Student context
+- University and semester planning
 - Housing/living situation
+- Food and meal planning
 - Transport and distance considerations
-- Personal financial circumstances
+- Student funding context
+- Personal preferences and changing circumstances
 
-### Intelligence Layer
-PesaFlow is being extended toward a self-contained intelligence architecture with:
+### 🧠 Intelligence
+The project is being extended toward a self-contained intelligence layer for:
 
-- user-context modeling
-- personalization
+- personal-context modeling
 - intent understanding
-- behavioral patterns
+- personalization
+- behavioural pattern detection
 - adaptive recommendations
 - financial reasoning
-- confidence-aware insights
+- confidence-aware explanations
 - lightweight ML and neural components
-- local/offline-first processing where practical
+- local/offline processing where practical
 
-The architecture is intentionally being developed without making a cloud API or external AI service a hard dependency.
+No external AI API is intended to be a hard dependency of the intelligence architecture.
 
-## Architecture Direction
+## Architecture direction
 
 ```text
-                    ┌─────────────────────┐
-                    │     PesaFlow UI     │
-                    │  Android / Kotlin   │
-                    └──────────┬──────────┘
-                               │
-                    ┌──────────▼──────────┐
-                    │   Finance Engine    │
-                    │ budgets • bills •   │
-                    │ cash flow • rules   │
-                    └──────────┬──────────┘
-                               │
-              ┌────────────────▼────────────────┐
-              │       Personal Context          │
-              │ habits • preferences • student │
-              │ situation • lifestyle signals  │
-              └────────────────┬────────────────┘
-                               │
-                    ┌──────────▼──────────┐
-                    │ Intelligence Layer │
-                    │ intent • ML •       │
-                    │ prediction •        │
-                    │ personalization     │
-                    └──────────┬──────────┘
-                               │
-                    ┌──────────▼──────────┐
-                    │ Adaptive Assistant  │
-                    │ explanations •      │
-                    │ insights • actions  │
-                    └─────────────────────┘
+                 PesaFlow Android UI
+                         │
+                         ▼
+                 ┌───────────────┐
+                 │ Finance Engine│
+                 │ money + rules │
+                 └───────┬───────┘
+                         │
+                         ▼
+                 ┌───────────────┐
+                 │Personal Context│
+                 │ habits + life │
+                 └───────┬───────┘
+                         │
+                         ▼
+                 ┌───────────────┐
+                 │ Intelligence  │
+                 │ intent + ML   │
+                 └───────┬───────┘
+                         │
+                         ▼
+                 ┌───────────────┐
+                 │Adaptive Assist│
+                 │ insight + next│
+                 └───────────────┘
 ```
 
-The long-term architecture is intended to keep **financial truth separate from interpretation**: deterministic calculations handle money and accounting, while ML/intelligence components help understand patterns and personalize explanations.
+A key architectural boundary is maintained between **deterministic financial truth** and **probabilistic interpretation**.
 
-## Design Philosophy
+Money calculations should remain testable and explainable. Intelligence can then use those trusted results to understand patterns and personalize communication.
 
-PesaFlow is being designed around four principles:
+## Design principles
 
-**1. Financial correctness**  
-Money calculations should remain deterministic, testable, and explainable.
+**Financial correctness** — calculations should be deterministic and auditable.
 
-**2. Context before conclusions**  
-A number should be interpreted in relation to the user's actual circumstances rather than treated as universally meaningful.
+**Context before conclusions** — the same amount can mean different things in different student situations.
 
-**3. Personalization without unnecessary cloud dependency**  
-The application should learn useful preferences and patterns locally where feasible.
+**Local intelligence where practical** — useful personalization should not automatically require a cloud service.
 
-**4. Intelligence that explains itself**  
-Recommendations should be understandable rather than presenting unexplained scores or predictions.
+**Explainable assistance** — the system should communicate why an insight matters rather than exposing opaque scores.
+
+**Visual clarity** — complex financial state should feel understandable, not like a spreadsheet dumped onto a phone.
 
 ## Technology
 
-- **Kotlin**
-- **Android**
-- **Gradle / Gradle Kotlin DSL**
-- Local application data and state
-- ML/AI components under active development
+- Kotlin
+- Android
+- Gradle / Gradle Kotlin DSL
+- Local application state and persistence
+- Custom finance logic
+- ML / neural components under active development
 
-## Project Status
+## Current engineering focus
 
-🚧 **Active development**
-
-The repository is evolving quickly. Some parts of the application are experimental while the architecture is being consolidated around a more robust financial reasoning and personalization system.
-
-## Engineering Focus
-
-Current development is centered on:
-
-- improving financial reasoning
-- connecting financial figures with user context
-- building a reusable personalization model
-- developing lightweight local intelligence
-- improving the visual system and information hierarchy
-- making complex financial state understandable to students
-- keeping the application practical for real-world Kenyan student use
-
-## Screens & Demo
-
-Screenshots, videos, and architecture visuals will be added as the interface stabilizes.
+- Unified personal-context model
+- Financial reasoning
+- Adaptive personalization
+- Local ML components
+- Intent understanding
+- Context-aware recommendations
+- Student-specific financial modeling
+- Visual design and information hierarchy
+- Reliability and testing
 
 ## Roadmap
 
 - [x] Android/Kotlin foundation
 - [x] Core finance-oriented screens
-- [x] Student-focused feature direction
+- [x] Student feature direction
 - [ ] Unified personal-context model
 - [ ] Adaptive intelligence layer
-- [ ] More robust financial reasoning
-- [ ] Expanded local ML components
+- [ ] Robust financial reasoning engine
+- [ ] Expanded local ML
 - [ ] Deeper personalization
-- [ ] Polished production UI
+- [ ] Production UI refinement
 - [ ] Testing and reliability hardening
 
-## Repository Notes
+## Project status
 
-This project is intentionally documented as an engineering project rather than presenting experimental features as finished production capabilities.
+🚧 **Active development**
 
-More implementation details can be found in [PROJECT-REVIEW.md](PROJECT-REVIEW.md).
+PesaFlow is the flagship project in this portfolio: a practical attempt to combine **software engineering, financial systems, mobile development and applied AI** into one coherent product.
 
 ---
 
