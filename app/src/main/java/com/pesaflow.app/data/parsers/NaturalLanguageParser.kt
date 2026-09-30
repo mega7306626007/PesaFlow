@@ -17,33 +17,38 @@ object NaturalLanguageParser {
         var matchedKeyword = false
 
 
-        // Detect operational context semantic cues
+        // Detect operational context semantic cues — full Swahili verb set,
+        // aligned with MpesaParser.inferCategory's keyword coverage.
         val inputLower = input.lowercase(Locale.getDefault())
         when {
-            inputLower.contains("received") || inputLower.contains("nimetumiwa") || inputLower.contains("salary") || inputLower.contains("helb") || inputLower.contains("bonus") || inputLower.contains("refund") || inputLower.contains("allowance") -> {
+            inputLower.contains("received") || inputLower.contains("nimetumiwa") || inputLower.contains("nimepewa") ||
+                inputLower.contains("nimepokea") || inputLower.contains("nimeongea") ||
+                inputLower.contains("salary") || inputLower.contains("helb") || inputLower.contains("bonus") ||
+                inputLower.contains("refund") || inputLower.contains("allowance") -> {
                 derivedType = TransactionType.INCOME
             }
-            inputLower.contains("saved") || inputLower.contains("nimeweka") || inputLower.contains("savings") || inputLower.contains("chama") || inputLower.contains("mshwari") -> {
+            inputLower.contains("saved") || inputLower.contains("nimeweka") || inputLower.contains("savings") ||
+                inputLower.contains("chama") || inputLower.contains("mshwari") -> {
                 derivedType = TransactionType.SAVING
             }
         }
 
-
-        // Segment mapping evaluation parameters
+        // Segment mapping evaluation parameters — keyword set mirrors
+        // MpesaParser.inferCategory so NLP and SMS filing agree.
         val catKeywords = mapOf(
-            "Food" to listOf("food", "lunch", "dinner", "supper", "breakfast", "kibanda", "chips", "chapati", "mutura", "pilau", "ugali", "githeri", "eat", "kula", "chakula", "sherehe"),
-            "Transport" to listOf("fare", "matatu", "mat", "bodaboda", "boda", "uber", "bolt", "stage", "train", "nauli", "parking"),
+            "Food" to listOf("food", "lunch", "dinner", "supper", "breakfast", "kibanda", "chips", "chapati", "mutura", "pilau", "ugali", "githeri", "eat", "kula", "chakula", "sherehe", "smokie", "sukuma", "nyama", "kuku", "mama", "rest", "hotel", "cafe", "kiosk", "vibanda", "choma"),
+            "Transport" to listOf("fare", "matatu", "mat", "bodaboda", "boda", "uber", "bolt", "stage", "train", "nauli", "parking", "grability", "ride", "car", "fuel", "petrol", "shell", "rubis", "totalenergies", "ola energy"),
             "Airtime" to listOf("airtime", "credit", "safari", "credo", "bonga"),
-            "Data" to listOf("bundles", "data", "net", "wi-fi", "wifi", "faiba", "unliminet"),
+            "Data" to listOf("bundles", "data", "wi-fi", "wifi", "faiba", "unliminet"),
             "Printing" to listOf("printing", "print", "cyber", "photocopy", "assignment", "stationery"),
-            "Shopping" to listOf("shopping", "supermarket", "naivas", "quickmart", "carrefour", "market", "duka", "nunua"),
+            "Shopping" to listOf("shopping", "supermarket", "naivas", "quickmart", "carrefour", "market", "duka", "nunua", "choppies", "jumia", "kilimani", "jiji", "eastmatt", "cleanshelf", "magunas", "kibo", "lipa mdogo"),
             "Rent" to listOf("rent", "hostel", "house", "pango", "nyumba"),
-            "School" to listOf("fees", "school", "tuition", "exam", "books", "shule", "kalamu"),
+            "School" to listOf("fees", "school", "tuition", "exam", "books", "shule", "kalamu", "university"),
             "Electricity" to listOf("kplc", "token", "tokens", "stima", "electricity"),
             "Water" to listOf("water", "maji"),
             "Clothes" to listOf("clothes", "shirt", "shoe", "dress", "jacket", "jeans", "nguo", "kiatu"),
-            "Kujibamba" to listOf("salon", "barber", "kinyozi", "hair", "nails", "plot", "movie", "game"),
-            "Health" to listOf("hospital", "clinic", "pharmacy", "chemist", "medicine", "dawa", "daktari"),
+            "Kujibamba" to listOf("salon", "barber", "kinyozi", "hair", "nails", "plot", "movie", "game", "netflix", "spotify", "showmax", "dstv", "gotv", "startimes", "sportpesa", "betika"),
+            "Health" to listOf("hospital", "clinic", "pharmacy", "chemist", "medicine", "dawa", "daktari", "goodlife", "haltons", "mydawa", "khan", "shah"),
             "Savings" to listOf("chama", "mshwari", "savings", "save")
         )
 
@@ -59,8 +64,29 @@ object NaturalLanguageParser {
         }
 
 
-        // Isolate dynamic target merchant signatures
-        val merchant = when (matchedCategory) {
+        // Merchant hint: "at Java", "kwa MAMA MBOGA", "from HELB" — the text
+        // often names the counterparty even when the category is generic.
+        val merchantHint = Regex("(?i)\\b(?:at|kwa|from)\\s+([A-Za-z' .]+?)(?:\\s+(?:mpesa|cash|today|leo|jana|yesterday|kesho|tomorrow)\\b|[.,]|$)")
+            .find(input)?.groupValues?.get(1)?.trim()?.takeIf { it.length >= 2 }
+            ?.take(24)
+
+        // Backdate words: relative days first, then specific dates
+        // ("on 12/9", "tarehe 12/9") which land on exact past days.
+        val dayMs = 24L * 60 * 60 * 1000
+        val now = System.currentTimeMillis()
+        val specificDate = Regex("(?i)\\b(?:on|tarehe|date)\\s+(\\d{1,2}[/-]\\d{1,2}(?:[/-]\\d{2,4})?|\\d{1,2}\\s+[A-Za-z]{3,9}\\s+\\d{2,4})")
+            .find(input)?.groupValues?.get(1)
+        val stamp = when {
+            specificDate != null -> MpesaParser.parseDateTime(specificDate, null).takeIf { it < now - dayMs / 2 } ?: now
+            inputLower.contains("day before") || inputLower.contains("juzi") -> now - 2 * dayMs
+            inputLower.contains("yesterday") || inputLower.contains("jana") -> now - dayMs
+            inputLower.contains("tomorrow") || inputLower.contains("kesho") -> now + dayMs
+            else -> now
+        }
+
+        // Isolate dynamic target merchant signatures — hint wins when the text
+        // names one; otherwise the category's usual suspect.
+        val merchant = merchantHint ?: when (matchedCategory) {
             "Food" -> "Food Joint/Kiosk"
             "Transport" -> "Matatu/Boda Stage"
             "Airtime" -> "Safaricom Airtime"
@@ -76,17 +102,6 @@ object NaturalLanguageParser {
             "Savings" -> "Savings Pot"
             else -> "General Merchant"
         }
-
-
-        // Backdate words: "yesterday lunch 200" lands on yesterday's ledger.
-        val dayMs = 24L * 60 * 60 * 1000
-        val backDays = when {
-            inputLower.contains("day before") || inputLower.contains("juzi") -> 2
-            inputLower.contains("yesterday") || inputLower.contains("jana") -> 1
-            else -> 0
-        }
-        val stamp = System.currentTimeMillis() - backDays * dayMs
-
 
         return PendingTransaction(
             amount = derivedAmount,

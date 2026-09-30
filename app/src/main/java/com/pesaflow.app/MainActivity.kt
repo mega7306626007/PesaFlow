@@ -458,29 +458,52 @@ private fun MoreScreen(onSelect: (String) -> Unit) {
     ) {
         Text("More features", style = com.pesaflow.app.ui.theme.ppTypography.h1, color = com.pesaflow.app.ui.theme.ppColors.textPrimary)
         Text("Everything else, one tap away", style = com.pesaflow.app.ui.theme.ppTypography.bodyMedium, color = com.pesaflow.app.ui.theme.ppColors.textTertiary)
-        MoreRow(icon = Icons.Filled.Info, title = "Insights", subtitle = "Charts, trends and advice") { onSelect(NavRoutes.INSIGHTS) }
-        MoreRow(icon = Icons.Filled.DateRange, title = "Semester", subtitle = "Semester plan, runway and fees") { onSelect(NavRoutes.SEMESTER) }
-        MoreRow(icon = Icons.Filled.Menu, title = "Reports", subtitle = "Daily to annual summaries") { onSelect(NavRoutes.REPORTS) }
-        MoreRow(icon = Icons.Filled.Settings, title = "Settings", subtitle = "Language, notifications, data") { onSelect(NavRoutes.SETTINGS) }
-        MoreRow(icon = Icons.Filled.Person, title = "Net Worth", subtitle = "Cash, savings, investments, debts") { onSelect(NavRoutes.NETWORTH) }
-        MoreRow(icon = Icons.Filled.Savings, title = "Savings", subtitle = "Goals that grow with your ledger") { onSelect(NavRoutes.SAVINGS) }
-        MoreRow(icon = Icons.Filled.Home, title = "Bills", subtitle = "Upcoming, recurring, repeats") { onSelect(NavRoutes.BILLS) }
-        MoreRow(icon = Icons.Filled.AccountBalance, title = "Income", subtitle = "HELB, parents, hustle — where money comes from") { onSelect(NavRoutes.INCOME) }
-        MoreRow(icon = Icons.Filled.AccountBox, title = "Debt Tracking", subtitle = "Money owed and borrowed") { onSelect(NavRoutes.DEBT) }
-        MoreRow(icon = Icons.Filled.Search, title = "Search", subtitle = "Find any transaction") { onSelect(NavRoutes.SEARCH) }
-        MoreRow(icon = Icons.Filled.Star, title = "University", subtitle = "Semester planner and allowance") { onSelect(NavRoutes.UNIVERSITY) }
-        MoreRow(icon = Icons.Filled.Favorite, title = "Meal Planner", subtitle = "Food menus under your budget") { onSelect(NavRoutes.MEALS) }
-        MoreRow(icon = Icons.Filled.Face, title = "PesaBuddy", subtitle = "Ask about your money") { onSelect(NavRoutes.BUDDY) }
-        MoreRow(icon = Icons.Filled.ShoppingCart, title = "My Things", subtitle = "Have it, need it, save for it") { onSelect(NavRoutes.THINGS) }
-        MoreRow(icon = Icons.Filled.DateRange, title = "Kitchen Stock", subtitle = "Unga levels, refills, restock cost") { onSelect(NavRoutes.KITCHEN) }
-        MoreRow(icon = Icons.Filled.CheckCircle, title = "Weekly review", subtitle = "Uncategorized and possible duplicates") { onSelect(NavRoutes.REVIEW) }
-        MoreRow(icon = Icons.Filled.Info, title = "Analytics", subtitle = "Trends, shares, heatmap and insights") { onSelect(NavRoutes.ANALYTICS) }
-        MoreRow(icon = Icons.Filled.Favorite, title = "Notifications", subtitle = "Bills, debts, budgets and rituals") { onSelect(NavRoutes.NOTIFICATIONS) }
-        MoreRow(icon = Icons.Filled.Star, title = "Export & Backup", subtitle = "CSV, JSON backup and share") { onSelect(NavRoutes.EXPORT) }
-        MoreRow(icon = Icons.Filled.DateRange, title = "Recurring", subtitle = "Patterns and monthly commitment") { onSelect(NavRoutes.RECURRING) }
-        MoreRow(icon = Icons.Filled.Savings, title = "Goals Pro", subtitle = "Pace, risk and suggestions") { onSelect(NavRoutes.GOALS) }
-        MoreRow(icon = Icons.Filled.Person, title = "Contact Book", subtitle = "Label people — friend, landlord, boss") { onSelect(NavRoutes.CONTACTS) }
+
+        MoreSection("Money") {
+            MoreRow(icon = Icons.Filled.Info, title = "Insights", subtitle = "Charts, trends and advice") { onSelect(NavRoutes.INSIGHTS) }
+            MoreRow(icon = Icons.Filled.Menu, title = "Analytics", subtitle = "Trends, shares, heatmap and insights") { onSelect(NavRoutes.ANALYTICS) }
+            MoreRow(icon = Icons.Filled.DateRange, title = "Reports", subtitle = "Daily to annual summaries") { onSelect(NavRoutes.REPORTS) }
+            MoreRow(icon = Icons.Filled.AccountBalance, title = "Net Worth", subtitle = "Cash, savings, investments, debts") { onSelect(NavRoutes.NETWORTH) }
+            MoreRow(icon = Icons.Filled.Search, title = "Search", subtitle = "Find any transaction") { onSelect(NavRoutes.SEARCH) }
+        }
+        MoreSection("Plan") {
+            MoreRow(icon = Icons.Filled.ShoppingCart, title = "Budgets", subtitle = "Envelopes and progress") { onSelect(NavRoutes.BUDGETS) }
+            MoreRow(icon = Icons.Filled.Home, title = "Bills", subtitle = "Upcoming, recurring, repeats") { onSelect(NavRoutes.BILLS) }
+            MoreRow(icon = Icons.Filled.AccountBox, title = "Debt Tracking", subtitle = "Money owed and borrowed") { onSelect(NavRoutes.DEBT) }
+            MoreRow(icon = Icons.Filled.Savings, title = "Savings", subtitle = "Goals that grow with your ledger") { onSelect(NavRoutes.SAVINGS) }
+            MoreRow(icon = Icons.Filled.Savings, title = "Goals Pro", subtitle = "Pace, risk and suggestions") { onSelect(NavRoutes.GOALS) }
+            MoreRow(icon = Icons.Filled.DateRange, title = "Recurring", subtitle = "Patterns and monthly commitment") { onSelect(NavRoutes.RECURRING) }
+            MoreRow(icon = Icons.Filled.DateRange, title = "Semester", subtitle = "Semester plan, runway and fees") { onSelect(NavRoutes.SEMESTER) }
+            MoreRow(icon = Icons.Filled.Favorite, title = "Meal Planner", subtitle = "Food menus under your budget") { onSelect(NavRoutes.MEALS) }
+            MoreRow(icon = Icons.Filled.DateRange, title = "Kitchen Stock", subtitle = "Unga levels, refills, restock cost") { onSelect(NavRoutes.KITCHEN) }
+            MoreRow(icon = Icons.Filled.ShoppingCart, title = "My Things", subtitle = "Have it, need it, save for it") { onSelect(NavRoutes.THINGS) }
+        }
+        MoreSection("Data") {
+            MoreRow(icon = Icons.Filled.Star, title = "Export & Backup", subtitle = "CSV, JSON backup and share") { onSelect(NavRoutes.EXPORT) }
+            MoreRow(icon = Icons.Filled.Person, title = "Contact Book", subtitle = "Label people — friend, landlord, boss") { onSelect(NavRoutes.CONTACTS) }
+            MoreRow(icon = Icons.Filled.CheckCircle, title = "Weekly review", subtitle = "Uncategorized and possible duplicates") { onSelect(NavRoutes.REVIEW) }
+        }
+        MoreSection("App") {
+            MoreRow(icon = Icons.Filled.Face, title = "PesaBuddy", subtitle = "Ask about your money") { onSelect(NavRoutes.BUDDY) }
+            MoreRow(icon = Icons.Filled.Star, title = "University", subtitle = "Semester planner and allowance") { onSelect(NavRoutes.UNIVERSITY) }
+            MoreRow(icon = Icons.Filled.Favorite, title = "Notifications", subtitle = "Bills, debts, budgets and rituals") { onSelect(NavRoutes.NOTIFICATIONS) }
+            MoreRow(icon = Icons.Filled.Settings, title = "Settings", subtitle = "Language, notifications, data") { onSelect(NavRoutes.SETTINGS) }
+        }
     }
+}
+
+}
+
+@Composable
+private fun MoreSection(title: String, content: @Composable () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            title,
+            style = com.pesaflow.app.ui.theme.ppTypography.labelLarge,
+            color = com.pesaflow.app.ui.theme.ppColors.gold,
+            modifier = Modifier.padding(start = 4.dp)
+        )
+        content()
     }
 }
 
@@ -528,3 +551,5 @@ private fun MoreRow(icon: ImageVector, title: String, subtitle: String, onClick:
         )
     }
 }
+
+

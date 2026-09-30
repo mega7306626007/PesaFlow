@@ -1505,7 +1505,7 @@ object MpesaParser {
     }
 
 
-    private fun parseDateTime(dateStr: String?, timeStr: String?): Long {
+    internal fun parseDateTime(dateStr: String?, timeStr: String?): Long {
         val now = System.currentTimeMillis()
         if (dateStr == null) return now
         return try {

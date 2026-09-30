@@ -434,6 +434,50 @@ heldBalance: Double = 0.0
         }
     }
 
+    // Forward projection: paydays + open bills + monthly commitments vs money
+    // held — the app's eyes forward, not just the rear-view.
+    run {
+        val balance = txs.filter { !it.isSample }.sumOf {
+            when (it.type) {
+                TransactionType.INCOME -> it.amount
+                TransactionType.EXPENSE -> -it.amount
+                TransactionType.SAVING -> -it.amount
+                TransactionType.INVESTMENT -> -it.amount
+                TransactionType.TRANSFER -> 0.0
+            }
+        }
+        val nowMs = System.currentTimeMillis()
+        val projection = com.pesaflow.app.data.finance.projectCashFlow(
+            balance, nowMs, 30,
+            paydays = com.pesaflow.app.data.analytics.predictPaydays(txs, nowMs),
+            bills = bills.filter { it.status != "PAID" },
+            recurring = com.pesaflow.app.data.analytics.detectRecurring(txs)
+        )
+        val fmt = java.text.SimpleDateFormat("d MMM", java.util.Locale.getDefault())
+        if (projection.brokeDate != null) {
+            out.add(t(
+                "Forward: balance goes negative around ${fmt.format(java.util.Date(projection.brokeDate))} (low KSh ${projection.lowest.balance.toInt()}). Move money or delay spending. 🔮",
+                "Forward: salio linaenda negative karibu ${fmt.format(java.util.Date(projection.brokeDate))} (low KSh ${projection.lowest.balance.toInt()}). Hamisha money au uahirishe matumizi. 🔮",
+                "Kusonga: salio litaingia chini ya sifuri karibu ${fmt.format(java.util.Date(projection.brokeDate))} (KSh ${projection.lowest.balance.toInt()} chini). 🔮",
+                "Forward: balance goes negative around ${fmt.format(java.util.Date(projection.brokeDate))} (low KSh ${projection.lowest.balance.toInt()}). 🔮"
+            ))
+        } else if (projection.lowest.balance < balance * 0.2 && balance > 0) {
+            out.add(t(
+                "Forward: gets tight — low KSh ${projection.lowest.balance.toInt()} around ${fmt.format(java.util.Date(projection.lowest.dayStart))}. 🔮",
+                "Forward: hupata tight — low KSh ${projection.lowest.balance.toInt()} karibu ${fmt.format(java.util.Date(projection.lowest.dayStart))}. 🔮",
+                "Kusonga: huzidi — KSh ${projection.lowest.balance.toInt()} chini karibu ${fmt.format(java.util.Date(projection.lowest.dayStart))}. 🔮",
+                "Forward: gets tight — low KSh ${projection.lowest.balance.toInt()} around ${fmt.format(java.util.Date(projection.lowest.dayStart))}. 🔮"
+            ))
+        } else {
+            out.add(t(
+                "Forward: stays positive — low KSh ${projection.lowest.balance.toInt()} around ${fmt.format(java.util.Date(projection.lowest.dayStart))}. 🔮",
+                "Forward: salio linabaki positive — low KSh ${projection.lowest.balance.toInt()} karibu ${fmt.format(java.util.Date(projection.lowest.dayStart))}. 🔮",
+                "Kusonga: salio halitashuka — KSh ${projection.lowest.balance.toInt()} chini karibu ${fmt.format(java.util.Date(projection.lowest.dayStart))}. 🔮",
+                "Forward: stays positive — low KSh ${projection.lowest.balance.toInt()} around ${fmt.format(java.util.Date(projection.lowest.dayStart))}. 🔮"
+            ))
+        }
+    }
+
     // Budget pace check
     val dom = cal.get(Calendar.DAY_OF_MONTH)
     val dim = cal.getActualMaximum(Calendar.DAY_OF_MONTH)

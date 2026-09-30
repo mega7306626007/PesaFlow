@@ -78,12 +78,22 @@ fun BudgetsScreen(viewModel: FinanceViewModel) {
                 it.dateTimestamp in periodWindow && it.dateTimestamp <= now
         }
         .sumOf { it.amount }
-    // Envelope carryover: last month's unspent rolls into this month's target
+    // Envelope carryover: last period's unspent rolls into this one —
+    // monthly envelopes roll from last month, weekly from last week.
     val prevWindowStart = monthStartOf(monthStartOf(now) - 24L * 60 * 60 * 1000)
     val lastSpent = transactions
         .filter { it.type == TransactionType.EXPENSE && !it.isSample && it.dateTimestamp >= prevWindowStart && it.dateTimestamp < periodWindow.startInclusive }
         .sumOf { it.amount }
-    val carry = if (tab == "Monthly") (target - lastSpent).coerceAtLeast(0.0) else 0.0
+    val prevWeekStart = periodWindow.startInclusive - 7 * day
+    val lastWeekSpent = transactions
+        .filter { it.type == TransactionType.EXPENSE && !it.isSample && it.dateTimestamp >= prevWeekStart && it.dateTimestamp < periodWindow.startInclusive }
+        .sumOf { it.amount }
+    val carry = when (tab) {
+        "Monthly" -> (target - lastSpent).coerceAtLeast(0.0)
+        "Weekly" -> (target - lastWeekSpent).coerceAtLeast(0.0)
+        else -> 0.0
+    }
+    val carryLabel = if (tab == "Weekly") "last week" else "last month"
     val displayTarget = target + carry
     val left = displayTarget - spent
 
@@ -395,7 +405,7 @@ fun BudgetsScreen(viewModel: FinanceViewModel) {
                                 )
                                 if (carry > 0) {
                                     Text(
-                                        "＋KSh ${carry.toInt()} rolled in from last month 🎲",
+                                        "＋KSh ${carry.toInt()} rolled in from $carryLabel 🎲",
                                         style = MaterialTheme.typography.bodySmall,
                                         fontWeight = FontWeight.SemiBold,
                                         color = MaterialTheme.colorScheme.primary

@@ -160,6 +160,17 @@ class ExportEngine(
         val transportSpend = expenses.filter { it.category.contains("transport", ignoreCase = true) }.sumOf { it.amount }.toInt()
         val dayCount = window.map { it.dateTimestamp / (24L * 60 * 60 * 1000) }.toSet().size
         val savingsPct = if (totalIncome > 0) { (net / totalIncome * 100).toInt() } else { 0 }
+        val topCat = expenses.groupBy { it.category }.mapValues { e -> e.value.sumOf { it.amount } }.maxByOrNull { it.value }
+        val biggest = expenses.maxByOrNull { it.amount }
+        val netWorth = transactions.filter { !it.isSample }.sumOf {
+            when (it.type) {
+                TransactionType.INCOME -> it.amount
+                TransactionType.EXPENSE -> -it.amount
+                TransactionType.SAVING -> 0.0 // savings are still money held
+                TransactionType.INVESTMENT -> it.amount
+                TransactionType.TRANSFER -> 0.0
+            }
+        }.toInt()
         val shareText = """PesaFlow $periodDays-day summary:
 Income: KSh $totalIncome
 Expenses: KSh $totalSpent ($savingsPct% savings)
@@ -167,6 +178,8 @@ Net flow: KSh $net
 Food: KSh $foodSpend
 Transport: KSh $transportSpend
 Active days: $dayCount
+${topCat?.let { "Top: ${it.key} KSh ${it.value.toInt()}" } ?: ""}${biggest?.let { " · Biggest: ${it.merchant} KSh ${it.amount.toInt()}" } ?: ""}
+Net worth: KSh $netWorth
 ${if (expenses.isEmpty()) "No spending logged — full month ahead!" else "Keep the ritual going."}""".trimIndent()
         return shareText
     }

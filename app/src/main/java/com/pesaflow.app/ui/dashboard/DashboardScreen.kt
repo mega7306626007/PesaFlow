@@ -395,6 +395,11 @@ fun DashboardScreen(
                 )
             }
 
+            // Forward projection: paydays + bills + subscriptions vs money held.
+            item {
+                Next30DaysCard(transactions = transactions, bills = bills, hide = hideBalances)
+            }
+
 
             // Upcoming budgets: category, spent, remaining, percent, progress —
             // glanceable, never a spreadsheet.
