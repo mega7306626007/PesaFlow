@@ -1,6 +1,13 @@
 # PesaFlow
 
-> **Personal finance × student life × adaptive intelligence — built for real-world Kenyan student constraints.**
+<p align="center">
+  <img src="https://img.shields.io/badge/Kotlin-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white" />
+  <img src="https://img.shields.io/badge/Android-3DDC84?style=for-the-badge&logo=android&logoColor=white" />
+  <img src="https://img.shields.io/badge/Offline--First-238636?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Status-Active_Development-ff5e6c?style=for-the-badge" />
+</p>
+
+> **Personal finance x student life x adaptive intelligence — built for real-world Kenyan student constraints.**
 
 PesaFlow is an Android/Kotlin personal finance and lifestyle assistant designed to do more than record transactions. It connects financial state with the circumstances that give those numbers meaning.
 
@@ -16,7 +23,7 @@ The core idea is simple:
 
 ## Core system
 
-### 💰 Finance
+### Finance
 - Income and expense tracking
 - Budgets
 - Bills and recurring obligations
@@ -25,7 +32,7 @@ The core idea is simple:
 - Safe-to-spend calculations
 - Financial summaries and insights
 
-### 🎓 Student context
+### Student context
 - University and semester planning
 - Housing/living situation
 - Food and meal planning
@@ -33,7 +40,7 @@ The core idea is simple:
 - Student funding context
 - Personal preferences and changing circumstances
 
-### 🧠 Intelligence
+### Intelligence
 The project is being extended toward a self-contained intelligence layer for:
 
 - personal-context modeling
@@ -130,7 +137,7 @@ Money calculations should remain testable and explainable. Intelligence can then
 
 ## Project status
 
-🚧 **Active development**
+**Active development**
 
 PesaFlow is the flagship project in this portfolio: a practical attempt to combine **software engineering, financial systems, mobile development and applied AI** into one coherent product.
 
